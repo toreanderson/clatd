@@ -1,0 +1,792 @@
+#! /usr/bin/perl -w
+#
+# Copyright (c) 2014 Tore Anderson <tore@fud.no>
+#
+#   As long as you retain this notice, you may use this piece of software as
+#   you wish. If you like it, and we happen to meet one day, you can buy me
+#   a beer in return. If you really like it, make it an IPA.
+#
+# See the file 'README.pod' in the source distribution or the manual page
+# clatd(8) for more information.
+#
+use strict;
+use Net::IP;
+
+my $VERSION = "1.0";
+
+#
+# Populate the global config hash with the default values
+#
+my %CFG;
+$CFG{"quiet"} = 0;			# suppress normal output
+$CFG{"debug"} = 0;			# debugging output level
+$CFG{"clat-dev"} = "clat";		# TUN interface name to use
+$CFG{"clat-v4-addr"} = "192.0.0.1";	# from I-D.draft-byrne-v6ops-clatip
+$CFG{"clat-v6-addr"} = undef;		# derive from existing SLAAC addr
+$CFG{"dns64-servers"} = undef;		# use system resolver by default
+$CFG{"cmd-ip"} = "ip";			# assume in $PATH
+$CFG{"cmd-ip6tables"} = "ip6tables";	# assume in $PATH
+$CFG{"cmd-tayga"} = "tayga";		# assume in $PATH
+$CFG{"forwarding-enable"} = 1;		# enable ipv6 forwarding?
+$CFG{"ip6tables-enable"} = undef;	# allow clat<->plat traffic?
+$CFG{"plat-dev"} = undef;		# PLAT-facing device, default detect
+$CFG{"plat-prefix"} = undef;		# detect using DNS64 by default
+$CFG{"proxynd-enable"} = 1;		# add proxy-nd entry for clat?
+$CFG{"tayga-conffile"} = undef;		# make a temporary one by default
+$CFG{"tayga-v4-addr"} = "192.0.0.2";	# from I-D.draft-byrne-v6ops-clatip
+$CFG{"v4-conncheck-enable"} = 1;	# exit if there's already a defroute
+$CFG{"v4-conncheck-delay"} = 10;	# seconds before checking for v4 conn.
+$CFG{"v4-defaultroute-enable"} = 1;	# add a v4 defaultroute via the CLAT?
+$CFG{"v4-defaultroute-metric"} = 2048;	# metric for the IPv4 defaultroute
+$CFG{"v4-defaultroute-mtu"} = 1260;	# MTU for the IPv4 defaultroute
+
+
+#
+# helper functions for various modes of output and error handling
+#
+sub p {
+  print join("", @_), "\n" unless($CFG{"quiet"} >= 1);
+}
+sub d {
+  print join("", @_), "\n" if($CFG{"debug"} >= 1);
+}
+sub d2 {
+  print join("", @_), "\n" if($CFG{"debug"} >= 2);
+}
+sub w {
+  print "<warn> ", join("", @_), "\n" unless($CFG{"quiet"} >= 2);
+}
+sub err {
+  print "<error> ", join("", @_), "\n" unless($CFG{"quiet"} >= 2);
+  cleanup_and_exit(1);
+}
+
+
+#
+# Runs a command. First argument is what subroutine to call to a message if
+# the command doesn't exit successfully, second is the command itself, and
+# any more is the command line arguments.
+#
+sub cmd {
+  my $msgsub = shift;
+  my $command = shift;
+  my @cmdline = @_;
+
+  d("cmd($command @cmdline)");
+
+  if(system($command, @cmdline)) {
+    if($? == -1) {
+      &{$msgsub}("cmd($command @cmdline) failed to execute");
+    } elsif($? & 127) {
+      &{$msgsub}("cmd($command @cmdline) died with signal ", ($? & 127));
+    } else {
+      &{$msgsub}("cmd($command @cmdline) returned ", ($? >> 127));
+    }
+  }
+  return $?;
+}
+
+
+#
+# Reads in key=value pairs from a configuration file, overwriting the default
+# setting in the %CFG hash. The key must exist, or we
+#
+sub readconf {
+  d("readconf('@_')");
+  open(my $fd, "@_") or err("readconf('@_') failed: $!");
+  while(<$fd>) {
+    chomp;
+    next if m,^\s*(;|#|//|$),; # strip out comments and empty lines
+    if(m|^\s*([\w-]+)\s*=\s*(.*)\s*$|) {
+      if(!exists($CFG{$1})) {
+        w("Unknown key '$1' defined in config file ignored");
+      } else {
+        $CFG{$1} = $2;
+      }
+    } else {
+      w("Unknown line '$_' in config file ignored");
+    }
+  }
+  close($fd) or err($!);
+}
+
+
+#
+# gets a boolean value from the config hash - fails if unset or syntactically
+# invalid
+#
+sub cfgbool {
+  my ($key) = @_;
+  d2("cfgbool($key)");
+  if(!exists($CFG{$key})) {
+    err("key '$key' doesn't exist in config hash");
+  }
+  my $val = lc($CFG{$key});
+  return 1 if($val eq "1" or $val eq "true" or $val eq "on" or $val eq "yes");
+  return 0 if($val eq "0" or $val eq "false" or $val eq "off" or $val eq "no");
+  err("$key: boolean value (1/0/true/false/on/off/yes/no) expected");
+}
+
+
+#
+# gets an integer value from the config hash - fails if unset or syntactically
+# invalid
+#
+sub cfgint {
+  my ($key) = @_;
+  d2("cfgstr($key)");
+  if(!exists($CFG{$key})) {
+    err("key '$key' doesn't exist in config hash");
+  }
+  my $val = $CFG{$key};
+  $val =~ m|^\d+$| or err("$key=$val - integer expected");
+  return $val;
+}
+
+
+#
+# gets a scalar value from the config hash - fails if unset
+#
+sub cfg {
+  my ($key) = @_;
+  d2("cfgstr($key)");
+  if(!exists($CFG{$key})) {
+    err("key '$key' doesn't exist in config hash");
+  }
+  return $CFG{$key};
+}
+
+
+#
+# read sysctl in the first argument, or set it to value in second argument
+# if provided
+#
+sub sysctl {
+  my ($sysctl, $new_value) = @_;
+
+  $sysctl =~ s|^/proc/sys/||;
+
+  if(defined($new_value)) {
+    d("Setting sysctl /proc/sys/$sysctl=$new_value");
+    my $fd;
+    open($fd, ">/proc/sys/$sysctl");
+    if(!defined($fd)) {
+      w("Failed to open /proc/sys/$sysctl for writing: $!");
+      return;
+    }
+    print $fd "$new_value\n";
+    if(!close($fd)) {
+      w("Failed to close /proc/sys/$sysctl after writing: $!");
+      return;
+    }
+    return $new_value;
+  } else {
+    d("Reading sysctl /proc/sys/$sysctl");
+    my $fd;
+    open($fd, "/proc/sys/$sysctl");
+    if(!defined($fd)) {
+      w("Failed to open /proc/sys/$sysctl for reading: $!");
+      return;
+    }
+    my $value = <$fd>;
+    chomp($value);
+    if(!close($fd)) {
+      w("Failed to close /proc/sys/$sysctl after reading: $!");
+    }
+    d("/proc/sys/$sysctl is set to '$value'");
+    return $value;
+  }
+}
+
+
+#
+# Look for either of the WKAs for ipv4only.arpa (192.0.0.170 and .171) in an
+# IPv6 address at all of the locations RFC 6052 says it can occur. If it's
+# present at any of those locations (but no more than once), return the
+# inferred translation prefix.
+#
+sub find_rfc7050_wka {
+  my $AAAA = shift;
+  d("check_wka(): Testing to see if $AAAA was DNS64-synthesised");
+  my $ip = Net::IP->new($AAAA, 6);
+  if(!$ip) {
+    w("Net::IP->new($AAAA, 6) failed: ", Net::IP::Error());
+    return;
+  }
+
+  my %rfc6052table;
+  $rfc6052table{"32"}{"mask"} = "0:0:ffff:ffff::";
+  $rfc6052table{"32"}{"wkas"} = [qw(0:0:c000:aa:: 0:0:c000:ab::)];
+  $rfc6052table{"40"}{"mask"} = "0:0:ff:ffff:ff::";
+  $rfc6052table{"40"}{"wkas"} = [qw(0:0:c0:0:aa:: 0:0:c0:0:ab::)];
+  $rfc6052table{"48"}{"mask"} = "::ffff:ff:ff00:0:0";
+  $rfc6052table{"48"}{"wkas"} = [qw(::c000:0:aa00:0:0 ::c000:0:ab00:0:0)];
+  $rfc6052table{"56"}{"mask"} = "::ff:ff:ffff:0:0";
+  $rfc6052table{"56"}{"wkas"} = [qw(::c0:0:aa:0:0 ::c0:0:ab:0:0)];
+  $rfc6052table{"64"}{"mask"} = "::ff:ffff:ff00:0";
+  $rfc6052table{"64"}{"wkas"} = [qw(::c0:0:aa00:0 ::c0:0:ab00:0)];
+  $rfc6052table{"96"}{"mask"} = "::ffff:ffff";
+  $rfc6052table{"96"}{"wkas"} = [qw(::c000:aa ::c000:ab)];
+
+  my $discovered_pfx_len;
+
+  for my $len (keys(%rfc6052table)) {
+    d2("Looking for Well-Known Addresses at prefix length /$len");
+    my $maskedip = $ip->intip();
+    my $mask = Net::IP->new($rfc6052table{"$len"}{"mask"}, 6);
+    if(!$mask) {
+      w('Net::IP->new(', $rfc6052table{"$len"}{"mask"}, ', 6) failed: ',
+        Net::IP::Error());
+      return;
+    }
+
+    $maskedip &= $mask->intip();
+
+    for my $wka (@{$rfc6052table{"$len"}{"wkas"}}) {
+      d2("Looking for WKA $wka");
+      my $wkaint = Net::IP->new($wka, 6);
+      if(!$wkaint) {
+        w("Net::IP->new($wka, 6) failed: ", Net::IP::Error());
+        next;
+      }
+
+      if($maskedip == $wkaint->intip) {
+        if($discovered_pfx_len) {
+          w("Found WKA at two locations in ", $ip->sort,
+            "(/$discovered_pfx_len and /$len) - ignoring");
+          return;
+        }
+        d2("Found it!");
+        $discovered_pfx_len = $len;
+      } else {
+        d2("Didn't find it");
+      }
+    }
+  }
+
+  if(!$discovered_pfx_len) {
+    d2("Did not locate any WKAs in ", $ip->short);
+    return;
+  }
+
+  # Yay, we have found a prefix! Zero the host bits manually, as Net::IP-new()
+  # unfortunately doesn't accept an address with a prefix length. That would
+  # have made the rest of this function so much easier...
+  $ip = $ip->intip;
+  $ip >>= (128-$discovered_pfx_len);
+  $ip <<= (128-$discovered_pfx_len);
+
+  # Now convert that bigint back to an IPv6 address. Net::IP doesn't have
+  # a function to convert directly from a bigint to an IPv6 address (or
+  # to create a new instance directly from a bigint), so we'll have to take
+  # a detour via a binary string...
+  my $binip = Net::IP::ip_inttobin($ip, 6);
+  unless($binip) {
+    w("Failed to convert integer $ip to a binary string");
+    return;
+  }
+  unless($ip = Net::IP::ip_bintoip($binip, 6)) {
+    w("Failed to convert binary string $binip to an IPv6 address");
+    return;
+  }
+
+  # Now make sure we have a valid prefix, and return it in pretty (compact)
+  # format
+  $ip = Net::IP->new("$ip/$discovered_pfx_len", 6);
+  if(!$ip) {
+    w("Net::IP->new($ip, 6) failed: ", Net::IP::Error());
+    return;
+  }
+
+  d("Inferred PLAT prefix ", $ip->short(), "/", $ip->prefixlen(),
+    " from AAAA record $AAAA");
+
+  return $ip->short() . "/" . $ip->prefixlen();
+}
+
+
+#
+# This function attempts to implement RFC 7050: Discovery of the IPv6 Prefix
+# Used for IPv6 Address Synthesis. It tries to infer a PLAT prefix by looking
+# up to see if the well-known hostname 'ipv4only.arpa' resolves to an IPv6
+# address, if so there is a high chance of DNS64 being used.
+#
+sub get_plat_prefix {
+  p("Performing DNS64-based PLAT prefix discovery (cf. RFC 7050)");
+
+  require IO::Socket::INET6; # needed by Net::DNS for querying IPv6 servers
+  require Net::DNS;
+
+  my @dns64_servers = split(",", cfg("dns64-servers") || "");
+  my @prefixes;
+
+  while (1) {
+    my $dns64 = shift(@dns64_servers);
+    my $res;
+    if($dns64) {
+      d("Looking up 'ipv4only.arpa' using DNS64 server $dns64");
+      $res = Net::DNS::Resolver->new(nameservers => [$dns64]);
+    } else {
+      d("Looking up 'ipv4only.arpa' using system resolver");
+      $res = Net::DNS::Resolver->new();
+    }
+    $res->dnssec(0); # RFC 7050 section 3
+    my $pkt = $res->query('ipv4only.arpa', 'AAAA');
+    if(!$pkt) {
+      d("No AAAA records was returned for 'ipv4only.arpa'");
+      next;
+    }
+    for my $rr ($pkt->answer) {
+     if($rr->type ne "AAAA") {
+       w("Got an non-AAAA RR? That's unexpected... Type=", $rr->type);
+       next;
+     }
+     my $prefix = find_rfc7050_wka($rr->address);
+     if(grep { $_ eq "$prefix" } @prefixes) {
+       # we've seen this prefix already, ignore it (in most cases this will
+       # happen at least once, since ipv4only.arpa has two A records)
+     } else {
+       push(@prefixes, $prefix);
+     }
+    }
+  } continue { last unless @dns64_servers };
+
+  if(@prefixes > 1) {
+    # Cool! More than one prefix! Here we might at some point implement a
+    # connectivity check which tests that the prefixes actually work, and
+    # skips to the next one if so...
+    w("Multiple PLAT prefixes discovered (@prefixes), using the first seen");
+  }
+  if(@prefixes) {
+    return $prefixes[0];
+  } else {
+    p("No PLAT prefix could be discovered. Your ISP probably doesn't provide",
+      " NAT64/DNS64 PLAT service. Exiting.");
+    cleanup_and_exit(0);
+  }
+}
+
+
+#
+# This function figures out which network interface on the system faces the
+# PLAT/NAT64. We need this when generating an IPv6 address for the CLAT, when
+# installing Proxy-ND entries, and when setting up ip6tables rules.
+#
+sub get_plat_dev {
+  d("get_plat_dev(): finding which network dev faces the PLAT");
+  my $plat_dev;
+  my $plat_prefix = cfg("plat-prefix");
+  if(!$plat_prefix) {
+    err("get_plat_dev(): No PLAT prefix to work with");
+  }
+  open(my $fd, '-|', cfg("cmd-ip"), qw(-6 route get), $plat_prefix)
+    or err("get_plat_dev(): 'ip -6 route get $plat_prefix' failed to execute");
+  while(<$fd>) {
+    if(/ dev (\S+) /) {
+      d("get_plat_dev(): Found PLAT-facing device: $1");
+      $plat_dev = $1;
+    }
+  }
+  close($fd) or err("get_plat_dev(): 'ip -6 route get $plat_prefix' failed");
+  return $plat_dev;
+}
+
+
+#
+# Determines if an address is contructed using the Modified EUI-64 algorithm,
+# by extension that it was configured using SLAAC (in which case we're at
+# liberty to grab another address in that same /64 for the CLAT).
+#
+# This isn't a 100% foolproof check, as it is certainly possible to configure
+# such an address statically, or to hand it out using DHCPv6 IA_NA, but as
+# we can't easliy know with 100% certainty that SLAAC is being used, it'll
+# have to do. The function checks three things which are known to be true for
+# IPv6 addresses with Interface IDs based on Modified EUI-64:
+#  1) bits 24 through 38 in the Interface ID are 1
+#  2) bit 39 in the Interface ID is 0
+# Return true if all of the above is the case, false otherwise.
+#
+sub is_modified_eui64 {
+  my $ip = shift;
+  $ip = Net::IP->new($ip) or return;
+  $ip = $ip->intip();
+
+  # Check 1) - return false if check fails
+  my $mask = Net::IP->new("::ff:fe00:0");
+  $mask = $mask->intip();
+  return unless ($ip & $mask) == $mask;
+
+  # Check 2) and return
+  $mask = Net::IP->new("::100:0");
+  $mask = $mask->intip();
+  return ($ip & $mask) != $mask;
+}
+
+
+#
+# This function considers any globally scoped /64 address on the PLAT-facing
+# device, checks to see if it is base on Modified EUI-64, and generates a
+# new address for the CLAT by substituting the "0xfffe" bits in the middle
+# of the Interface ID with 0xc1a7 ("clat"). This keeps the last 24 bits
+# unchanged, which has the added bonus of not requiring the host to join
+# another Solicited-Node multicast group.
+#
+sub get_clat_v6_addr {
+  my $plat_dev = cfg("plat-dev");
+  if(!$plat_dev) {
+    err("get_clat_v6_addr(): No PLAT device to work with");
+  }
+  p("Attempting to derive a CLAT IPv6 address from a EUI-64 address on ",
+    "'$plat_dev'");
+  open(my $fd, '-|', cfg("cmd-ip"), qw(-6 address list scope global dev),
+       $plat_dev)
+    or err("'ip -6 address list scope global dev $plat_dev' failed to execute");
+  while(<$fd>) {
+    if(m| inet6 (\S+)/64 scope global |) {
+      my $candidate = $1;
+      next unless(is_modified_eui64($candidate));
+      d2("Saw EUI-64 based address: $candidate");
+      my $ip = Net::IP->new($candidate, 6) or next;
+      $ip = $ip->intip();
+
+      # First clear the middle 0xfffe bits of the interface ID
+      my $mask = Net::IP->new("ffff:ffff:ffff:ffff:ffff:ff00:00ff:ffff");
+      $mask = $mask->intip();
+      $ip &= $mask;
+
+      # Next set them to the value 0xc1a7 and return
+      $mask = Net::IP->new("::c1:a700:0", 6) or next;
+      $mask = $mask->intip();
+      $ip |= $mask;
+
+      $ip = Net::IP->new(Net::IP::ip_bintoip(Net::IP::ip_inttobin($ip, 6), 6));
+      return $ip->short() if $ip;
+    }
+  }
+  close($fd)
+    or err("'ip -6 address list scope global dev $plat_dev' failed");
+  err("Failed to generate a CLAT IPv6 address (try setting 'clat-v6-addr')");
+}
+
+#
+# This subroutine is called when we are exiting, for whatever reason. It
+# tries to clean up any temporary changes we've made first. The variables
+# below gets set as we go along, so that the cleanup subroutine can restore
+# stuff if necessary.
+#
+my $cleanup_remove_clat_dev;		# true if having created it
+my $cleanup_delete_taygaconf;		# true if having made a temp confile
+my $cleanup_zero_forwarding_sysctl;	# zero forwarding sysctl if set
+my @cleanup_accept_ra_sysctls;		# accept_ra sysctls to be reset to '1'
+my $cleanup_zero_proxynd_sysctl;	# zero proxy_ndp sysctl if set
+my $cleanup_remove_proxynd_entry,	# true if having added proxynd entry
+my $cleanup_remove_ip6tables_rules;	# true if having added ip6tables rules
+
+sub cleanup_and_exit {
+  my $exitcode = shift;
+
+  if(defined($cleanup_remove_clat_dev)) {
+    d("Cleanup: Removing CLAT device");
+    cmd(\&w, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--rmtun");
+  }
+  if(defined($cleanup_delete_taygaconf)) {
+    d("Cleanup: Deleting TAYGA config file '", cfg("tayga-conffile"), "'");
+    unlink(cfg("tayga-conffile"))
+      or w("unlink('", cfg("tayga-conffile"), "') failed");
+  }
+  if(defined($cleanup_zero_forwarding_sysctl)) {
+    d("Cleanup: Resetting forwarding sysctl to 0");
+    sysctl("net/ipv6/conf/all/forwarding", 0);
+  }
+  for my $sysctl (@cleanup_accept_ra_sysctls) {
+    d("Cleanup: Resetting $sysctl to 1");
+    sysctl($sysctl, 1);
+  }
+  if(defined($cleanup_zero_proxynd_sysctl)) {
+    d("Cleanup: Resetting proxy_ndp sysctl to 0");
+    sysctl("net/ipv6/conf/" . cfg("plat-dev") . "/proxy_ndp", 0);
+  }
+  if(defined($cleanup_remove_proxynd_entry)) {
+    d("Cleanup: Removing Proxy-ND entry for ", cfg("clat-v6-addr"), "on ",
+      cfg("plat-dev"));
+    cmd(\&w, cfg("cmd-ip"), qw(-6 neighbour delete proxy), cfg("clat-v6-addr"),
+        "dev", cfg("plat-dev"));
+  }
+  if(defined($cleanup_remove_ip6tables_rules)) {
+    d("Cleanup: Removing ip6tables rules allowing traffic between the CLAT ",
+      "and PLAT devices");
+    cmd(\&w, cfg("cmd-ip6tables"), qw(-D FORWARD -i), cfg("clat-dev"),
+        "-o", cfg("plat-dev"), qw(-j ACCEPT));
+    cmd(\&w, cfg("cmd-ip6tables"), qw(-D FORWARD -i), cfg("plat-dev"),
+        "-o", cfg("clat-dev"), qw(-j ACCEPT));
+  }
+
+  exit($exitcode);
+}
+
+
+#
+# Ok, we're done defining helper functions, and are ready to start doing some
+# real work here. First parse option arguments from command line, config
+# overrides we do in a second pass below. We do it in two passes to ensure we
+# have read in any config from the config file before possibly overriding with
+# config supplied on the command line
+#
+#
+for (my $i = 0; $i < @ARGV;) {
+  if($ARGV[$i] eq "-q") {
+    $CFG{"quiet"}++;
+    splice(@ARGV, $i, 1);
+    next;
+  } elsif($ARGV[$i] eq "-d") {
+    $CFG{"debug"}++;
+    splice(@ARGV, $i, 1);
+    next;
+  } elsif($ARGV[$i] eq "-c") {
+    if(!defined($ARGV[$i+1])) {
+      err("Command line option '-c' given without an argument");
+    }
+    if(!defined(&readconf)) {
+      err("Command line option '-c' given more than once");
+    }
+    readconf($ARGV[$i+1]);
+    undef(&readconf);
+    splice(@ARGV, $i, 2);
+    next;
+  } elsif($ARGV[$i] =~ /^(-h|--help)$/) {
+    print "clatd v$VERSION - a 464XLAT (RFC 6877) CLAT implementation for ",
+          "Linux\n";
+    print "\n";
+    print "  Usage:    clatd [-q] [-d [-d]] [-c config-file] ",
+          "[conf-key=val ...]\n";
+    print "  Author:   Tore Anderson <tore\@fud.no>\n";
+    print "  Homepage: https://github.com/toreanderson/clatd\n";
+    print "\n";
+    print "For more documentation and information, see 'man 8 clatd'.\n";
+    exit 0;
+  } elsif($ARGV[$i] =~ /^-/) {
+    err("Unrecognised command line option '$ARGV[$i]'");
+  }
+  $i++;
+}
+
+
+#
+# Read in config from default location if we haven't already due to
+# '-c "somefile"' having been supplied on command line (if so, &readconf
+# will have been undefined. However if it doesn't exit, that's OK - we'll
+# just proceed with defaults + any command line overrides
+#
+if(defined(&readconf) && -e "/etc/clatd.conf") {
+  readconf("/etc/clatd.conf");
+}
+
+
+#
+# Finally, deal with config settings from command line. This is done last so
+# that the command line takes precedence over all other sources of config
+#
+for (@ARGV) {
+  if(m|^([\w-]+)=(.*)$|) {
+    if(!exists($CFG{$1})) {
+      err("Unknown config key '$1' given on command line");
+    }
+    $CFG{$1} = $2;
+  } else {
+    err("Unrecognised command line argument '$_'");
+  }
+}
+d("Configuration successfully read, dumping it:");
+for my $key (sort(keys(%CFG))) {
+  d("  $key=", defined($CFG{$key}) ? $CFG{$key} : "<undefined>");
+}
+
+p("Starting clatd v$VERSION by Tore Anderson <tore\@fud.no>");
+
+#
+# Step 1: Fill in any essential blanks in the configuration by auto-detecting
+# any missing values.
+$CFG{"plat-prefix"} ||= get_plat_prefix();
+if(!$CFG{"plat-prefix"}) {
+  w("No PLAT prefix was discovered or specified; 464XLAT cannot work.");
+  exit 0;
+} else {
+  # Do some basic sanity checking on the PLAT prefix
+  my $ip = Net::IP->new($CFG{"plat-prefix"}, 6);
+  if(!$ip) {
+    d2("Net::IP::Error()=" . Net::IP::Error()) if(Net::IP::Error());
+    err("PLAT prefix $CFG{'plat-prefix'} is not a valid IPv6 prefix");
+  }
+  if($ip->prefixlen() != 96 and
+     $ip->prefixlen() != 64 and
+     $ip->prefixlen() != 56 and
+     $ip->prefixlen() != 48 and
+     $ip->prefixlen() != 32) {
+    err("PLAT prefix $CFG{'plat-prefix'} has an invalid prefix length ",
+        "(see RFC 6052 section 2.2)");
+  }
+  p("Using PLAT (NAT64) prefix: $CFG{'plat-prefix'}");
+}
+$CFG{"plat-dev"} ||= get_plat_dev();
+p("Device facing the PLAT: ", $CFG{"plat-dev"});
+$CFG{"clat-v6-addr"} ||= get_clat_v6_addr();
+p("Using CLAT IPv4 address: ", $CFG{"clat-v4-addr"});
+p("Using CLAT IPv6 address: ", $CFG{"clat-v6-addr"});
+if(!defined($CFG{"ip6tables-enable"})) {
+  $CFG{"ip6tables-enable"} = -e "/sys/module/ip6table_filter" ? 1 : 0;
+}
+
+#
+# Step 1: Detect if there is an IPv4 default route on the system from before.
+# If so we have no need for 464XLAT, and we can just exit straight away
+#
+if(cfgbool("v4-conncheck-enable")) {
+  my $delay = cfgint("v4-conncheck-delay");
+  p("Checking if this system already has IPv4 connectivity ",
+    $delay ? "in $delay sec(s)" : "now");
+  sleep($delay);
+  open(my $fd, '-|', cfg("cmd-ip"), qw(-4 route list default))
+    or err("'", cfg("cmd-ip"), " -4 route list default' failed to execute");
+  while(<$fd>) {
+    if(/^default /) {
+      p("This system already has IPv4 connectivity; no need for a CLAT.");
+      exit_and_cleanup(0);
+    }
+  }
+  close($fd) or err("cmd(ip -4 route list default) failed");
+} else {
+  d("Skipping IPv4 connectivity check at user request");
+}
+
+
+
+#
+# Write out the TAYGA config file, either to the user-specified location,
+# or to a temporary file (which we'll delete later)
+#
+my $tayga_conffile = cfg("tayga-conffile");
+my $tayga_conffile_fh;
+if(!$tayga_conffile) {
+  require File::Temp;
+  ($tayga_conffile_fh, $tayga_conffile) = File::Temp::tempfile();
+  d2("Using temporary conffile for TAYGA: $tayga_conffile");
+  $CFG{"tayga-conffile"} = $tayga_conffile;
+  $cleanup_delete_taygaconf = 1;
+} else {
+  open($tayga_conffile_fh, ">$tayga_conffile") or
+    err("Could not open TAYGA config file '$tayga_conffile' for writing");
+}
+
+print $tayga_conffile_fh "# Ephemeral TAYGA config file written by $0\n";
+print $tayga_conffile_fh "# This file may be safely deleted at any time.\n";
+print $tayga_conffile_fh "tun-device ", cfg("clat-dev"), "\n";
+print $tayga_conffile_fh "prefix ", cfg("plat-prefix"), "\n";
+print $tayga_conffile_fh "ipv4-addr ", cfg("tayga-v4-addr"), "\n";
+print $tayga_conffile_fh "map ", cfg("clat-v4-addr"), " ",
+                         cfg("clat-v6-addr"),"\n";
+
+close($tayga_conffile_fh) or err("close($tayga_conffile_fh: $!");
+
+#
+# Enable IPv6 forwarding if necessary
+#
+if(cfgbool("forwarding-enable")) {
+  if(sysctl("net/ipv6/conf/all/forwarding") == 0) {
+    p("Enabling IPv6 forwarding");
+    for my $ctl (glob("/proc/sys/net/ipv6/conf/*/accept_ra")) {
+
+      # Don't touch the ctl for the "all" interface, as that will probably
+      # change interfaces that have accept_ra set to 0 also.
+      next if($ctl eq "/proc/sys/net/ipv6/conf/all/accept_ra");
+      
+      if(sysctl($ctl) == 1) {
+        d("Changing $ctl from 1 to 2 to prevent connectivity loss after ",
+          "enabling IPv6 forwarding");
+        sysctl($ctl, 2);
+        push(@cleanup_accept_ra_sysctls, $ctl);
+      }
+    }
+    sysctl("net/ipv6/conf/all/forwarding", 1);
+    $cleanup_zero_forwarding_sysctl = 0;
+  }
+}
+
+#
+# Add ip6tables rules permitting traffic between the PLAT and the CLAT
+#
+if(cfgbool("ip6tables-enable")) {
+  p("Adding ip6tables rules allowing traffic between the CLAT ",
+    "and PLAT devices");
+  cmd(\&w, cfg("cmd-ip6tables"), qw(-I FORWARD -i), cfg("clat-dev"),
+      "-o", cfg("plat-dev"), qw(-j ACCEPT));
+  cmd(\&w, cfg("cmd-ip6tables"), qw(-I FORWARD -i), cfg("plat-dev"),
+      "-o", cfg("clat-dev"), qw(-j ACCEPT));
+  $cleanup_remove_ip6tables_rules = 1;
+}
+
+#
+# Enable ND proxy for the CLAT's IPv6 address on the interface facing the PLAT
+#
+if(cfgbool("proxynd-enable")) {
+  my $plat_dev = cfg("plat-dev");
+  my $clat_v6_addr = cfg("clat-v6-addr");
+  p("Enabling Proxy-ND for $clat_v6_addr on $plat_dev");
+  if(sysctl("net/ipv6/conf/$plat_dev/proxy_ndp") == 0) {
+    sysctl("net/ipv6/conf/$plat_dev/proxy_ndp", 1);
+    $cleanup_zero_proxynd_sysctl = 1;
+    d("Enabled Proxy-ND sysctl for $plat_dev");
+  }
+  cmd(\&w, cfg("cmd-ip"), qw(-6 neighbour add proxy), cfg("clat-v6-addr"),
+      "dev", cfg("plat-dev"));
+
+  $cleanup_remove_proxynd_entry = 1;
+}
+
+#
+# Create the CLAT tun interface, add the IPv4 address to it as well as the
+# route to the corresponding IPv6 address, and possibly an IPv4 default route
+#
+p("Creating and configuring up CLAT device '", cfg("clat-dev"), "'");
+cmd(\&err, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--mktun",
+    cfgint("debug") ? "-d" : "");
+$cleanup_remove_clat_dev = 1;
+cmd(\&err, cfg("cmd-ip"), qw(link set up dev), cfg("clat-dev"));
+cmd(\&err, cfg("cmd-ip"), qw(-4 address add), cfg("clat-v4-addr"),
+    "dev", cfg("clat-dev"));
+cmd(\&err, cfg("cmd-ip"), qw(-6 route add), cfg("clat-v6-addr"),
+    "dev", cfg("clat-dev"));
+if(cfgbool("v4-defaultroute-enable")) {
+  my @cmdline = (qw(-4 route add default dev), cfg("clat-dev"));
+  if(cfgint("v4-defaultroute-metric")) {
+    push(@cmdline, ("metric", cfgint("v4-defaultroute-metric")))
+  }
+  if(cfgint("v4-defaultroute-mtu")) {
+    push(@cmdline, ("mtu", cfgint("v4-defaultroute-mtu")))
+  }
+  p("Adding IPv4 default route via the CLAT");
+  cmd(\&err, cfg("cmd-ip"), @cmdline);
+}
+
+#
+# All preparation done! We can now start TAYGA, which will handle the actual
+# translation of IP packets.
+#
+p("Starting up TAYGA, using config file '$tayga_conffile'");
+
+# We don't want systemd etc. to actually kill this script when stopping the
+# service, just TAYGA (so that we can get around to cleaning up after
+# ourselves)
+$SIG{'INT'} = 'IGNORE';
+$SIG{'TERM'} = 'IGNORE';
+
+cmd(\&err, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--nodetach",
+    cfgint("debug") ? "-d" : "");
+p("TAYGA terminated, cleaning up and exiting");
+
+$SIG{'INT'} = 'DEFAULT';
+$SIG{'TERM'} = 'DEFAULT';
+
+#
+# TAYGA exited, probably because we're shutting down. Cleanup and exit.
+#
+cleanup_and_exit(0);

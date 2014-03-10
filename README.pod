@@ -1,0 +1,327 @@
+=head1 NAME
+
+B<clatd> - a CLAT implementation for Linux
+
+=head1 DESCRIPTION
+
+B<clatd> implements the CLAT component of the 464XLAT network architecture
+specified in I<RFC 6877>. It allows an IPv6-only host to have IPv4 connectivity
+that is translated to IPv6 before being routed to an upstream PLAT (which is
+typically a Stateful NAT64 operated by the ISP) and there translated back to
+IPv4 before being routed to the IPv4 internet. This is especially useful when
+local applications on the host requires actual IPv4 connectivity or cannot
+make use of DNS64 (for example because they use legacy AF_INET socket calls,
+or if they are simply not using DNS64).
+
+It may also be used in combination with a stateless PLAT as defined by
+I<I-D.anderson-siit-dc> to give the otherwise IPv6-only host a public IPv4
+address with connectivity to the IPv4 internet. This may be useful in a
+server environment that are using legacy IPv4-only applications as described
+above.
+
+It relies on the software package TAYGA by Nathan Lutchansky for the actual
+translation of packets between IPv4 and IPv6 (I<RFC 6145>) TAYGA may be
+downloaded from its home page at L<http://www.litech.org/tayga/>.
+
+=head1 SYNOPSIS
+
+B<clatd> [options]
+
+=head1 OPTIONS
+
+=over
+
+=item -q
+
+Quiet mode; suppress normal output This is the same as setting B<quiet=1>.
+Warnings and errors are still outputted, to silence those too, repeat I<-q>.
+
+=item -d
+
+Enable debugging output. This is the same as setting B<debug=1>. Repeat for
+even more debugging output, which is the
+equivalent of setting B<debug=2>.
+
+=item -c conf-file
+
+Read configuration settings from B<conf-file>. See section B<CONFIGURATION>
+below for more info.
+
+=item -h, --help
+
+Print a brief usage help and exit.
+
+=item key=value
+
+Set configuration B<key> to I<value>, overriding any setting found in the
+configuration file. Refer to the section B<CONFIGURATION> below for more info.
+
+=back
+
+=head1 INVOCATION
+
+B<clatd> is meant to be run under a daemonising control process such as
+systemd, upstart, or similar. It is further meant to be (re)started whenever a
+network interface goes up/down as this might mean a change in the PLAT
+availability or which prefixes/addresses needs to be used for the CLAT to work.
+It may also be run directly from the command line. It will run until killed
+with SIGINT (^C) or SIGTERM, at which point it will clean up after itself and
+exit gracefully.
+
+See the I<scripts/> directory in the source distribution for some examples on
+how to invoke it it.
+
+=head1 INSTALLATION
+
+The following commands will quickly download and install the latest version
+of B<clatd> and its dependencies:
+
+=over
+
+=item git clone https://github.com/toreanderson/clatd
+
+=item sudo make -C clatd install installdeps
+
+=back
+
+This will install B<clatd> to /usr/sbin, plus install systemd, upstart, and/or
+NetworkManager scripts if your distribution appears to be using them, and
+install all the dependencies. Note that TAYGA isn't available in RPM format,
+so on RedHat/Fedora the installdeps target will install gcc and attempt to
+compile TAYGA from source.
+
+=head1 CONFIGURATION
+
+B<clatd> is designed to be able to run without any user-supplied configuration
+in most cases. However, user-specified onfiguration settings may be added to
+the configuration file, the path to which may be given on the command line
+using the I<-c> option, or if it is not, the default location
+I</etc/clatd.conf> is used. Configuration settings may also be given directly
+on the command line when starting B<clatd>, which takes precedence over settings
+in the configuration file.
+
+Settings are of the form B<key=value>. A list of recogniced keys and their
+possible values follow below:
+
+=over
+
+=item B<quiet=integer> (default: I<0>)
+
+Set this to 1 to suppress normal output from B<clatd>. This is the same as
+providing the command line option I<-q>. Set it to 2 to additionally
+suppress warnings and errors. Note that this does not suppress debugging
+output.
+
+=item B<debug=integer> (default: I<0>)
+
+Set this to 1 to get debugging output from B<clatd>, or 2 to get even more of
+the stuff. These are the equivalent of providing the command line option I<-d>
+the specified number of times.
+
+=item B<clat-dev=string> (default: I<clat>)
+
+The name of the network device used by the CLAT. There should be no reason to
+change the default, unless you plan on running multiple instances of B<clatd>
+simultaneously.
+
+=item B<clat-v4-addr=ipv4-address> (default: I<192.0.0.1>)
+
+The IPv4 address that will be assigned to the CLAT device. Local applications
+will bind to this address when communicating with external IPv4 destinations.
+In a standard 464XLAT environment with a stateful NAT64 serving as the PLAT,
+there should be no need to change the default, but if the PLAT is a stateless
+translator (a la I-D.draft-anderson-siit-dc), you might want to set this to
+the true external address used externally, so the the local applications can
+correctly identify which public address they'll be using on the IPv4 internet.
+
+The default address is one from I<I-D.draft-byrne-v6ops-clatip>.
+
+=item B<clat-v6-addr=ipv6-address> (default: auto-generated)
+
+The IPv6 address of the CLAT. Traffic to/from the B<clat-v4-addr> will be
+translated into this address. By default, B<clatd> will attempt to figure out
+which network device will be used for traffic towards the PLAT, see if there
+is any SLAAC-configured addresses on it, and if so substitute the '0xfffe'
+value in the middle of the Interface ID for '0xc1a7' to generate a new
+address for the CLAT. If you're not using SLAAC you will have to set this
+manually.
+
+=item B<dns64-servers=srv1,[srv2,..]> (default: use system resolver)
+
+Comma-separated list of DNS64 servers to use when discovering the PLAT prefix
+using the method described in RFC 7050. By default, the system resolver is
+used, but it might be useful to override this in case your ISP doesn't provide
+you with a DNS64-enabled name server, and you want to test B<clatd> using any of
+the public DNS64/NAT64 instances on the internet. The first PLAT prefix
+encountered will be used.
+
+=item B<cmd-ip=path> (default: assume in $PATH)
+
+Path to the B<ip> binary from the iproute2 package available at
+L<https://www.kernel.org/pub/linux/utils/net/iproute2>. Required.
+
+=item B<cmd-ip6tables=path> (default: assume in $PATH)
+
+Path to the B<ip6tables> binary from the netfilter package available at
+L<http://netfilter.org>. Only required for adding ip6tables rules
+(see the B<ip6tables-enable> configuration setting).
+
+=item B<cmd-tayga=path> (default: assume in $PATH)
+
+Path to the B<tayga> binary from the TAYGA package available at
+L<http://www.litech.org/tayga>. Required.
+
+=item B<forwarding-enable=bool> (default: I<yes>)
+
+Controls whether or not B<clatd> should enable IPv6 forwarding if necessary. IPv6
+forwarding is necessary for B<clatd> to work correctly. It will also ensure that
+the I<accept_ra> sysctl is to '2' for all devices have it set to '1', in order
+to prevent any connectivity loss as a result of enabling forwarding.
+
+All sysctls that are modified will be restored to their original values when
+B<clatd> is shutting down.
+
+=item B<ip6tables-enable=bool> (default: see below)
+
+Controls whether or not B<clatd> should insert ip6tables rules that permit the
+forwarding of IPv6 traffic between the CLAT and PLAT devices. Such forwarding
+must be permitted for B<clatd> to work correctly. Any rules added will be removed
+when B<clatd> is shutting down.
+
+The default is I<yes> if the ip6tables_filter kernel module is loaded, I<no>
+if it is not.
+
+=item B<plat-dev> (default: auto-detect)
+
+Which network device is facing the PLAT (NAT64). By default, this is
+auto-detecting by performing a route table lookup towards the PLAT prefix.
+This setting is used when setting up generating the CLAT IPv6 address, and
+when setting up ip6tables rules and Proxy-ND entries.
+
+=item B<plat-prefix> (default: auto-detect)
+
+The IPv6 translation prefix into which the PLAT maps the IPv4 internet. See
+I<RFC 6052> for a closer description. By default, this is auto-detected from
+DNS64 answers using the method in I<RFC 7050>.
+
+=item B<proxynd-enable> (default: I<yes>)
+
+Controls whether or not B<clatd> should add a Proxy-ND entry for the CLAT IPv6
+address on the network device facing the PLAT. This is probably necessary
+on Ethernet networks (otherwise the upstream IPv6 router won't know where to
+send packets to the CLAT's IPv6 adderss), but likely not necessary on
+point-to-point links like PPP or 3GPP mobile broadband, as in those cases
+IPv6 ND isn't used. However it doesn't hurt to add Proxy-ND entries in that
+case, either.
+
+Any entries added wil be removed when B<clatd> is shutting down.
+
+=item B<tayga-conffile> (default: use a temporary file)
+
+Where to write the TAYGA configuration file. By default, a temporary file will
+be created (and also deleted when B<clatd> is shutting down), but you may also
+specify an explicit configuration file here, which will not be deleted on
+shutdown.
+
+=item B<tayga-v4-addr> (default: I<192.0.0.2>)
+
+The IPv4 address assigned to the TAYGA process. This is used for emitting
+ICMPv4 errors back to the host (i.e., it will show up as the first hop when
+tracerouting to IPv4 destinations), and you may also ping it to verify that
+the TAYGA process is still alive and well.
+
+The default address is one from I<I-D.draft-byrne-v6ops-clatip>.
+
+=item B<v4-conncheck-enable=bool> (default: I<yes>)
+
+Whether or not to check if the system has IPv4 connectivity before starting
+the CLAT. If it does, then B<clatd> will simply exit without doing anything.
+This is meant so that you can always enable B<clatd> to the system startup
+scripts or network-up event scripts (such as NetworkManager's dispatcher
+scripts), but not have B<clatd> interfering with native IPv4 connectivity when
+this is present.
+
+If you want to always start the CLAT whenever possible, even though the
+system has IPv4 connectivity, disable this setting. You may instead use the
+B<v4-defaultroute-enable> and B<v4-defaultroute-metric> settings to prevent
+B<clatd> from interfering with native IPv4 connectivity.
+
+=item B<v4-conncheck-delay=seconds> (default: I<10>)
+
+When performing an IPv4 connectivity check, wait this number of seconds
+before actually doing anything. This is to avoid a race condition where for
+example IPv6 SLAAC finshes and triggers a network-up event script to start
+B<clatd>, while IPv4 DHCPv4 is still running in the background. This is at
+least a likely scenario when using NetworkManager, as it will start the
+dispatcher scripts as soon as either IPv4 or IPv6 has completed, and
+IPv6 SLAAC is typically faster than IPv4 DHCPv4.
+
+Set it to 0 to perform the check immediately.
+
+=item B<v4-defaultroute-enable=bool> (default: I<yes>)
+
+Whether or not to add an IPv4 default route pointing to the CLAT. In a
+typical 464XLAT environment, you want this. However when using B<clatd> in
+an environment where native IPv4 connectivity is also present, you might want
+to disable this and instead control manually which IPv4 destinations is
+reached through the CLAT and which are not.
+
+=item B<v4-defaultroute-metric=integer> (default: I<2048>)
+
+The metric of the IPv4 default route pointing to the CLAT. The default is
+chosen because it is higher than that of a native IPv4 default route added by
+NetworkManager, which makes it so that the native IPv4 connectivity is
+preferred if present.
+
+=item B<v4-defaultroute-mtu=integer> (default: I<1260>)
+
+The MTU of the default route pointing to the CLAT. The default is the default
+IPv6 MTU used by TAYGA (1280, which in turn comes from I<RFC 6145>) minus 20 to
+compensate for the difference in header size between IPv4 and IPv6. This
+prevents outbound packets from having to be fragmented by TAYGA, and also
+makes local applications advertise a TCP MSS to their remote peers that
+prevent them from sending packets beck to us that would require fragmentation.
+
+If you know that the IPv6 Path MTU between the host and the PLAT is larger
+than 1280, you may increase this, but then you should also recompile TAYGA
+with a larger B<ipv6_offlink_mtu> setting in I<conffile.c>.
+
+=back
+
+=head1 LIMITATIONS
+
+B<clatd> will not be able to acquire an IPv6 address for the CLAT if SLAAC
+isn't used. I<RFC 6877> suggests DHCPv6 IA_PD should be attempted in this
+case, but this isn't currently implemented.
+
+B<clatd> will not attempt to perform Duplicate Address Detection for the IPv6
+address it generates. This is a violation of I<RFC 6877>.
+
+B<clatd> will not attempt to perform a connectivity check to a discovered PLAT
+prefix before setting up the CLAT, as I<RFC 7050> suggest it should.
+
+=head1 BUGS
+
+If you are experiencing any bugs or have any feature requests, head over to
+L<https://github.com/toreanderson/clatd/issues> and submit a new issue (if
+someone else hasn't already done so). Please make sure to include logs with
+full debugging output (using I<-d -d> on the command line or B<debug=2> in the
+configuration file) when reporting a bug.
+
+=head1 LICENCE
+
+Copyright (c) 2014 Tore Anderson <tore@fud.no>
+
+As long as you retain this notice, you may use this piece of software as
+you wish. If you like it, and we happen to meet one day, you can buy me
+a beer in return. If you really like it, make it an IPA.
+
+=head1 SEE ALSO
+
+ip(8), ip6tables(8), tayga(8), tayga.conf(5)
+
+RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050
+
+I-D.anderson-siit-dc, I-D.byrne-v6ops-clatip
+
+=cut

@@ -1,0 +1,16 @@
+#
+# clatd service file for upstart
+#
+# Install it to:  /etc/init/clatd.conf
+# Start it with:  initctl start clatd
+# 
+# Written by Tore Anderson <tore@fud.no>
+#
+
+description "464XLAT CLAT daemon"
+author "Tore Anderson <tore@fud.no>"
+
+start on net-device-up
+stop on runlevel [!2345]
+
+exec /usr/sbin/clatd

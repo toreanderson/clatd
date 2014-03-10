@@ -1,0 +1,21 @@
+#
+# clatd service file for systemd
+#
+# Install it to:  /etc/systemd/system/clatd.service
+# Enable it with: systemctl enable clatd.service
+# Start it with:  systemctl start clatd.service
+# 
+# Written by Tore Anderson <tore@fud.no>
+#
+
+[Unit]
+Description=464XLAT CLAT daemon
+Documentation=man:clatd(8)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/clatd
+
+[Install]
+WantedBy=multi-user.target
