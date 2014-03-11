@@ -650,7 +650,7 @@ if(cfgbool("v4-conncheck-enable")) {
   while(<$fd>) {
     if(/^default /) {
       p("This system already has IPv4 connectivity; no need for a CLAT.");
-      exit_and_cleanup(0);
+      cleanup_and_exit(0);
     }
   }
   close($fd) or err("cmd(ip -4 route list default) failed");
