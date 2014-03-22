@@ -12,7 +12,7 @@
 use strict;
 use Net::IP;
 
-my $VERSION = "1.0";
+my $VERSION = "1.1";
 
 #
 # Populate the global config hash with the default values
@@ -436,6 +436,17 @@ sub get_clat_v6_addr {
   if(!$plat_dev) {
     err("get_clat_v6_addr(): No PLAT device to work with");
   }
+
+  # In case there are more than one EUI-64-based addresses on the plat device,
+  # we'll need the plat prefix as an bigint in order to find which of those
+  # addresses share the longest common prefix. We'll prefer to use that one.
+  my $plat_prefix_int = Net::IP->new(cfg("plat-prefix"), 6)->intip();
+  if(!$plat_prefix_int) {
+    err("Failed to convert plat prefix to bigint");
+  }
+  my $ip; # will contain the best candidate ip in bigint format
+  my $best_score;
+
   p("Attempting to derive a CLAT IPv6 address from a EUI-64 address on ",
     "'$plat_dev'");
   open(my $fd, '-|', cfg("cmd-ip"), qw(-6 address list scope global dev),
@@ -446,25 +457,33 @@ sub get_clat_v6_addr {
       my $candidate = $1;
       next unless(is_modified_eui64($candidate));
       d2("Saw EUI-64 based address: $candidate");
-      my $ip = Net::IP->new($candidate, 6) or next;
-      $ip = $ip->intip();
-
-      # First clear the middle 0xfffe bits of the interface ID
-      my $mask = Net::IP->new("ffff:ffff:ffff:ffff:ffff:ff00:00ff:ffff");
-      $mask = $mask->intip();
-      $ip &= $mask;
-
-      # Next set them to the value 0xc1a7 and return
-      $mask = Net::IP->new("::c1:a700:0", 6) or next;
-      $mask = $mask->intip();
-      $ip |= $mask;
-
-      $ip = Net::IP->new(Net::IP::ip_bintoip(Net::IP::ip_inttobin($ip, 6), 6));
-      return $ip->short() if $ip;
+      my $candidate_int = Net::IP->new($candidate, 6)->intip();
+      if(!$candidate_int) {
+        err("Failed to convert plat prefix to bigint");
+      }
+      if(!$best_score or $best_score > ($plat_prefix_int ^ $candidate_int)) {
+        d2("$candidate has so far the longest common prefix with plat prefix");
+        $best_score = $plat_prefix_int ^ $candidate_int;
+        $ip = $candidate_int;
+      }
     }
   }
   close($fd)
     or err("'ip -6 address list scope global dev $plat_dev' failed");
+
+  # First clear the middle 0xfffe bits of the interface ID
+  my $mask = Net::IP->new("ffff:ffff:ffff:ffff:ffff:ff00:00ff:ffff");
+  $mask = $mask->intip();
+  $ip &= $mask;
+
+  # Next set them to the value 0xc1a7 and return
+  $mask = Net::IP->new("::c1:a700:0", 6) or err(Net::IP::Error());
+  $mask = $mask->intip();
+  $ip |= $mask;
+
+  $ip = Net::IP->new(Net::IP::ip_bintoip(Net::IP::ip_inttobin($ip, 6), 6));
+  return $ip->short() if $ip;
+
   err("Failed to generate a CLAT IPv6 address (try setting 'clat-v6-addr')");
 }
 
