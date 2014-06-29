@@ -471,6 +471,11 @@ sub get_clat_v6_addr {
   close($fd)
     or err("'ip -6 address list scope global dev $plat_dev' failed");
 
+  if(!$ip) {
+    err("No Modified EUI-64-based address seen on $plat_dev; clatd cannot ",
+	"auto-generate a CLAT IPv6 address (try setting 'clat-v6-addr')");
+  }
+
   # First clear the middle 0xfffe bits of the interface ID
   my $mask = Net::IP->new("ffff:ffff:ffff:ffff:ffff:ff00:00ff:ffff");
   $mask = $mask->intip();
