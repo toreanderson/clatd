@@ -89,7 +89,8 @@ sub cmd {
 
 #
 # Reads in key=value pairs from a configuration file, overwriting the default
-# setting in the %CFG hash. The key must exist, or we
+# setting in the %CFG hash. The key must exist in the built-in hash, or we
+# ignore the setting in the config file.
 #
 sub readconf {
   d("readconf('@_')");
