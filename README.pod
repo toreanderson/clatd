@@ -33,7 +33,7 @@ B<clatd> [options]
 
 =item -q
 
-Quiet mode; suppress normal output This is the same as setting B<quiet=1>.
+Quiet mode; suppress normal output. This is the same as setting B<quiet=1>.
 Warnings and errors are still outputted, to silence those too, repeat I<-q>.
 
 =item -d
@@ -195,7 +195,7 @@ if it is not.
 =item B<plat-dev> (default: auto-detect)
 
 Which network device is facing the PLAT (NAT64). By default, this is
-auto-detecting by performing a route table lookup towards the PLAT prefix.
+auto-detected by performing a route table lookup towards the PLAT prefix.
 This setting is used when setting up generating the CLAT IPv6 address, and
 when setting up ip6tables rules and Proxy-ND entries.
 
