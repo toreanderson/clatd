@@ -173,10 +173,11 @@ L<http://www.litech.org/tayga>. Required.
 
 =item B<forwarding-enable=bool> (default: I<yes>)
 
-Controls whether or not B<clatd> should enable IPv6 forwarding if necessary. IPv6
-forwarding is necessary for B<clatd> to work correctly. It will also ensure that
-the I<accept_ra> sysctl is to '2' for all devices have it set to '1', in order
-to prevent any connectivity loss as a result of enabling forwarding.
+Controls whether or not B<clatd> should enable IPv6 forwarding if necessary.
+IPv6 forwarding is necessary for B<clatd> to work correctly. It will also
+ensure that the I<accept_ra> sysctl is to '2' for all devices have it set to
+'1', in order to prevent any connectivity loss as a result of enabling
+forwarding.
 
 All sysctls that are modified will be restored to their original values when
 B<clatd> is shutting down.
@@ -185,8 +186,8 @@ B<clatd> is shutting down.
 
 Controls whether or not B<clatd> should insert ip6tables rules that permit the
 forwarding of IPv6 traffic between the CLAT and PLAT devices. Such forwarding
-must be permitted for B<clatd> to work correctly. Any rules added will be removed
-when B<clatd> is shutting down.
+must be permitted for B<clatd> to work correctly. Any rules added will be
+removed when B<clatd> is shutting down.
 
 The default is I<yes> if the ip6tables_filter kernel module is loaded, I<no>
 if it is not.
