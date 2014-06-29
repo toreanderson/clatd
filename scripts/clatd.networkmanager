@@ -8,7 +8,7 @@
 #
 
 # We simply restart clatd in all situations, as no matter if an interface
-# goes up or down, it may mean that the PLAT devices changes, it may mean
+# goes up or down, it may mean that the PLAT device changes, it may mean
 # native IPv4 appearing or disappearing, or it may mean that DNS64 became
 # available or unavailable...it's far easier to simply restart always and
 # start from scratch than to figure out if a restart is truly necessary
