@@ -21,7 +21,7 @@ my %CFG;
 $CFG{"quiet"} = 0;			# suppress normal output
 $CFG{"debug"} = 0;			# debugging output level
 $CFG{"clat-dev"} = "clat";		# TUN interface name to use
-$CFG{"clat-v4-addr"} = "192.0.0.1";	# from I-D.draft-byrne-v6ops-clatip
+$CFG{"clat-v4-addr"} = "192.0.0.1";	# from RFC 7335
 $CFG{"clat-v6-addr"} = undef;		# derive from existing SLAAC addr
 $CFG{"dns64-servers"} = undef;		# use system resolver by default
 $CFG{"cmd-ip"} = "ip";			# assume in $PATH
@@ -33,7 +33,7 @@ $CFG{"plat-dev"} = undef;		# PLAT-facing device, default detect
 $CFG{"plat-prefix"} = undef;		# detect using DNS64 by default
 $CFG{"proxynd-enable"} = 1;		# add proxy-nd entry for clat?
 $CFG{"tayga-conffile"} = undef;		# make a temporary one by default
-$CFG{"tayga-v4-addr"} = "192.0.0.2";	# from I-D.draft-byrne-v6ops-clatip
+$CFG{"tayga-v4-addr"} = "192.0.0.2";	# from RFC 7335
 $CFG{"v4-conncheck-enable"} = 1;	# exit if there's already a defroute
 $CFG{"v4-conncheck-delay"} = 10;	# seconds before checking for v4 conn.
 $CFG{"v4-defaultroute-enable"} = 1;	# add a v4 defaultroute via the CLAT?

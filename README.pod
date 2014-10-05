@@ -134,7 +134,7 @@ translator (a la I-D.draft-anderson-siit-dc), you might want to set this to
 the true external address used externally, so the the local applications can
 correctly identify which public address they'll be using on the IPv4 internet.
 
-The default address is one from I<I-D.draft-byrne-v6ops-clatip>.
+The default address is one from I<RFC 7335>.
 
 =item B<clat-v6-addr=ipv6-address> (default: auto-generated)
 
@@ -231,7 +231,7 @@ ICMPv4 errors back to the host (i.e., it will show up as the first hop when
 tracerouting to IPv4 destinations), and you may also ping it to verify that
 the TAYGA process is still alive and well.
 
-The default address is one from I<I-D.draft-byrne-v6ops-clatip>.
+The default address is one from I<RFC 7335>.
 
 =item B<v4-conncheck-enable=bool> (default: I<yes>)
 
@@ -321,8 +321,8 @@ a beer in return. If you really like it, make it an IPA.
 
 ip(8), ip6tables(8), tayga(8), tayga.conf(5)
 
-RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050
+RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335
 
-I-D.anderson-siit-dc, I-D.byrne-v6ops-clatip
+I-D.anderson-siit-dc
 
 =cut
