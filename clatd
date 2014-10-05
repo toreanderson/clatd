@@ -12,7 +12,7 @@
 use strict;
 use Net::IP;
 
-my $VERSION = "1.1";
+my $VERSION = "1.2";
 
 #
 # Populate the global config hash with the default values
@@ -425,12 +425,14 @@ sub is_modified_eui64 {
 
 
 #
-# This function considers any globally scoped /64 address on the PLAT-facing
-# device, checks to see if it is base on Modified EUI-64, and generates a
-# new address for the CLAT by substituting the "0xfffe" bits in the middle
-# of the Interface ID with 0xc1a7 ("clat"). This keeps the last 24 bits
-# unchanged, which has the added bonus of not requiring the host to join
-# another Solicited-Node multicast group.
+# This function considers any globally scoped IPv6 address on the PLAT-facing
+# device, and derives an CLAT IPv6 address from the best match (longest
+# common prefix with PLAT prefix). Addresses based on Modified EUI-64 are
+# preferred, and if found, it generates a new address for the CLAT by
+# substituting the "0xfffe" bits in the middle of the Interface ID with
+# 0xc1a7 ("clat"). This keeps the last 24 bits unchanged, which has the added
+# bonus of not requiring the host to join another Solicited-Node multicast
+# group. If no EUI-64 address is seen, it'll use a random IID instead.
 #
 sub get_clat_v6_addr {
   my $plat_dev = cfg("plat-dev");
@@ -446,47 +448,108 @@ sub get_clat_v6_addr {
     err("Failed to convert plat prefix to bigint");
   }
   my $ip; # will contain the best candidate ip in bigint format
-  my $best_score;
+  my $ip_plen; # will contain the prefix length of the best candidate ip
+  my $best_score; # will contain the score of the best candidate seen
+  my $seen_eui64; # set if we've seen an eui-64 based address
 
-  p("Attempting to derive a CLAT IPv6 address from a EUI-64 address on ",
+  p("Attempting to derive a CLAT IPv6 address from an IPv6 address on ",
     "'$plat_dev'");
   open(my $fd, '-|', cfg("cmd-ip"), qw(-6 address list scope global dev),
        $plat_dev)
     or err("'ip -6 address list scope global dev $plat_dev' failed to execute");
   while(<$fd>) {
-    if(m| inet6 (\S+)/64 scope global |) {
+    if(m| inet6 (\S+)/(\d{1,3}) scope global |) {
       my $candidate = $1;
-      next unless(is_modified_eui64($candidate));
-      d2("Saw EUI-64 based address: $candidate");
+      my $plen = $2;
+      d2("Saw a candidate address on '$plat_dev': $candidate/$plen");
       my $candidate_int = Net::IP->new($candidate, 6)->intip();
       if(!$candidate_int) {
         err("Failed to convert plat prefix to bigint");
       }
-      if(!$best_score or $best_score > ($plat_prefix_int ^ $candidate_int)) {
-        d2("$candidate has so far the longest common prefix with plat prefix");
+
+      if($plen > 120) {
+        # We'll need a subnet with some space if we are to generate a random
+        # IID and don't have too large risk of collisions... /120 seems like
+        # an OK limit
+        d2("Refusing to use random IIDs for prefix lengths > /120");
+        next;
+      }
+
+      # True if the candidate under consideration is EUI-64 based
+      my $is_eui64 = ($plen == 64) && is_modified_eui64($candidate);
+
+      # If this is the first time we're considering an EUI-64 based address,
+      # we unconditionally prefer it (even if it doesn't have the longest
+      # matching prefix), because we consider deriving the CLAT IPv6
+      # address from an EUI-64 based candidate to be safer than generating
+      # a truly random CLAT IPv6 address.
+      if($is_eui64 and !$seen_eui64++) {
+        d2("Preferring $candidate/$plen; it's the first EUI-64 seen");
         $best_score = $plat_prefix_int ^ $candidate_int;
         $ip = $candidate_int;
+        $ip_plen = $plen;
+        next;
       }
+
+      # If we already have found an EUI-64 based address, we can reject this
+      # candidate outright, as it is *not* EUI-64 based.
+      if(!$is_eui64 and $seen_eui64) {
+        d2("Rejecting $candidate/$plen; we have better EUI-64 candidates");
+        next;
+      }
+
+      # Otherwise, we'll be comparing EUI-64 to EUI-64, or non EUI-64 to
+      # non EUI-64. If so, we prefer the current candidate if it has a better
+      # score than the current best match (or if there is no current best
+      # match).
+      if(!$best_score or $best_score > ($plat_prefix_int ^ $candidate_int)) {
+        d2("Preferring $candidate/$plen; best match so far");
+        $best_score = $plat_prefix_int ^ $candidate_int;
+        $ip = $candidate_int;
+        $ip_plen = $plen;
+        next;
+      }
+
+      d2("Rejecting $candidate/$plen; we've seen better matches");
     }
   }
   close($fd)
     or err("'ip -6 address list scope global dev $plat_dev' failed");
 
   if(!$ip) {
-    err("No Modified EUI-64-based address seen on $plat_dev; clatd cannot ",
-	"auto-generate a CLAT IPv6 address (try setting 'clat-v6-addr')");
+    err("Could not find a global IPv6 address on $plat_dev from which ",
+        "to derive a CLAT IPv6 address (try setting 'clat-v6-addr')");
   }
 
-  # First clear the middle 0xfffe bits of the interface ID
-  my $mask = Net::IP->new("ffff:ffff:ffff:ffff:ffff:ff00:00ff:ffff");
-  $mask = $mask->intip();
-  $ip &= $mask;
+  if($seen_eui64) {
+    # If the chosen candidate IP is EUI-64 based, we derive a CLAT IPv6
+    # address by replacing the 0xffe in the middle of the Interface ID with
+    # 0xc1a7 ("CLAT").
 
-  # Next set them to the value 0xc1a7 and return
-  $mask = Net::IP->new("::c1:a700:0", 6) or err(Net::IP::Error());
-  $mask = $mask->intip();
-  $ip |= $mask;
+    # First clear the middle 0xfffe bits of the interface ID
+    my $mask = Net::IP->new("ffff:ffff:ffff:ffff:ffff:ff00:00ff:ffff");
+    $mask = $mask->intip();
+    $ip &= $mask;
 
+    # Next set them to the value 0xc1a7
+    $mask = Net::IP->new("::c1:a700:0", 6) or err(Net::IP::Error());
+    $mask = $mask->intip();
+    $ip |= $mask;
+  } else {
+    # If the chosen candidate IP is NOT EUI-64 based, we'll just make up a
+    # random interface ID. There is no guarantee that this will actually
+    # work, but it's the best thing we can try...
+
+    # First zero out the entire Interface ID
+    $ip >>= (128-$ip_plen);
+    $ip <<= (128-$ip_plen);
+
+    my $iid = int(rand(2**(128-$ip_plen)));
+    d2(sprintf("Using random interface ID: %x", $iid));
+    $ip |= $iid;
+  }
+
+  # Convert back the BigInt to a regular Net::IP object and return
   $ip = Net::IP->new(Net::IP::ip_bintoip(Net::IP::ip_inttobin($ip, 6), 6));
   return $ip->short() if $ip;
 
@@ -579,8 +642,10 @@ for (my $i = 0; $i < @ARGV;) {
     splice(@ARGV, $i, 2);
     next;
   } elsif($ARGV[$i] =~ /^(-h|--help)$/) {
-    print "clatd v$VERSION - a 464XLAT (RFC 6877) CLAT implementation for ",
-          "Linux\n";
+    print <<"EOF";
+clatd v$VERSION - a 464XLAT (RFC 6877) CLAT and SIIT-DC Host Agent
+             (I-D.anderson-v6ops-siit-dc-2xlat) implementation for Linux
+EOF
     print "\n";
     print "  Usage:    clatd [-q] [-d [-d]] [-c config-file] ",
           "[conf-key=val ...]\n";

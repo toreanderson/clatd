@@ -1,6 +1,6 @@
 =head1 NAME
 
-B<clatd> - a CLAT implementation for Linux
+B<clatd> - a CLAT / SIIT-DC Host Agent implementation for Linux
 
 =head1 DESCRIPTION
 
@@ -13,11 +13,12 @@ local applications on the host requires actual IPv4 connectivity or cannot
 make use of DNS64 (for example because they use legacy AF_INET socket calls,
 or if they are simply not using DNS64).
 
-It may also be used in combination with a stateless PLAT as defined by
-I<I-D.anderson-siit-dc> to give the otherwise IPv6-only host a public IPv4
-address with connectivity to the IPv4 internet. This may be useful in a
-server environment that are using legacy IPv4-only applications as described
-above.
+It may also be used to implement an SIIT-DC Host Agent as defined by
+I<I-D.anderson-v6ops-siit-dc-2xlat>. In this scenario, the PLAT is a SIIT-DC
+Gateway (see I<I-D.anderson-v6ops-siit-dc>) instead of a Stateful NAT64 (see
+I<RFC6146>). When used as a SIIT-DC Host Agent, you will probably want to
+manually configure the settings I<clat-v4-addr>, I<clat-v6-addr>, and
+I<plat-prefix> to mirror the SIIT-DC Gateway's configuration.
 
 It relies on the software package TAYGA by Nathan Lutchansky for the actual
 translation of packets between IPv4 and IPv6 (I<RFC 6145>) TAYGA may be
@@ -129,22 +130,41 @@ simultaneously.
 The IPv4 address that will be assigned to the CLAT device. Local applications
 will bind to this address when communicating with external IPv4 destinations.
 In a standard 464XLAT environment with a stateful NAT64 serving as the PLAT,
-there should be no need to change the default, but if the PLAT is a stateless
-translator (a la I-D.draft-anderson-siit-dc), you might want to set this to
-the true external address used externally, so the the local applications can
-correctly identify which public address they'll be using on the IPv4 internet.
+there should be no need to change the default.
+
+When using B<clatd> as an SIIT-DC Host Agent (cf.
+I-D.draft-anderson-v6ops-siit-dc-2xlat), you will want to set this to the
+IPv4 Service Address configured in the SIIT-DC Gateway. This way, local
+applications can correctly identify which public address they'll be using on
+the IPv4 internet, and will be able to provide fully functional references to
+it in application-level payload, and so on.
 
 The default address is one from I<RFC 7335>.
 
 =item B<clat-v6-addr=ipv6-address> (default: auto-generated)
 
 The IPv6 address of the CLAT. Traffic to/from the B<clat-v4-addr> will be
-translated into this address. By default, B<clatd> will attempt to figure out
-which network device will be used for traffic towards the PLAT, see if there
-is any SLAAC-configured addresses on it, and if so substitute the '0xfffe'
-value in the middle of the Interface ID for '0xc1a7' to generate a new
-address for the CLAT. If you're not using SLAAC you will have to set this
-manually.
+translated into this address. When using B<clatd> as an SIIT-DC Host Agent,
+you will want to set this to the IPv6 address in the Static Address Mapping
+configured in the SIIT-DC Gateway.
+
+By default, B<clatd> will attempt to figure out which network device will be
+used for traffic towards the PLAT, see if there is any SLAAC-based globally
+scoped addresses on it (i.e., a /64 with '0xfffe' in the middle of the
+Interface ID), and will if so substitute that '0xfffe' value with '0xc1a7'
+("clat") to generate a CLAT IPv6 address.
+
+If only a non-SLAAC global address is found on the PLAT-facing device,
+B<clatd> will substitute its Interface ID with a random integer and use the
+result as the CLAT IPv6 address. It will only do so if the prefix length is
+/120 or smaller, as otherwise the risk of IID collisions is considered to be
+too high. Note that on most Perl platforms, the I<rand()> function is limited
+to 48 bits, which means that for longer IIDs, the least significant bits will
+be all 0.
+
+If multiple addresses are found in either category, the one that shares the
+longest common prefix with the PLAT prefix will be preferred when deriving
+the CLAT IPv6 address according to the algorithm described above.
 
 =item B<dns64-servers=srv1,[srv2,..]> (default: use system resolver)
 
@@ -323,6 +343,6 @@ ip(8), ip6tables(8), tayga(8), tayga.conf(5)
 
 RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335
 
-I-D.anderson-siit-dc
+I-D.anderson-v6ops-siit-dc, I-D.anderson-v6ops-siit-dc-2xlat
 
 =cut
