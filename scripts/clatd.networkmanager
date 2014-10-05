@@ -7,6 +7,13 @@
 # Written by Tore Anderson <tore@fud.no>
 #
 
+# Newer NetworkManager versions will run the dispatcher scripts once
+# a new unmanaged interface shows up, including the 'clat' interface
+# created by clatd/TAYGA. So if we're being called due to our own
+# interface showing up, do nothing, otherwise we will end up
+# committing suicide from the restarts below
+[ "$DEVICE_IFACE" = "clat" ] && exit 0
+
 # We simply restart clatd in all situations, as no matter if an interface
 # goes up or down, it may mean that the PLAT device changes, it may mean
 # native IPv4 appearing or disappearing, or it may mean that DNS64 became
