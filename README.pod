@@ -1,6 +1,6 @@
 =head1 NAME
 
-B<clatd> - a CLAT / SIIT-DC Host Agent implementation for Linux
+B<clatd> - a CLAT / SIIT-DC Edge Relay implementation for Linux
 
 =head1 DESCRIPTION
 
@@ -13,12 +13,12 @@ local applications on the host requires actual IPv4 connectivity or cannot
 make use of DNS64 (for example because they use legacy AF_INET socket calls,
 or if they are simply not using DNS64).
 
-It may also be used to implement an SIIT-DC Host Agent as defined by
-I<I-D.anderson-v6ops-siit-dc-2xlat>. In this scenario, the PLAT is a SIIT-DC
-Gateway (see I<I-D.anderson-v6ops-siit-dc>) instead of a Stateful NAT64 (see
-I<RFC6146>). When used as a SIIT-DC Host Agent, you will probably want to
-manually configure the settings I<clat-v4-addr>, I<clat-v6-addr>, and
-I<plat-prefix> to mirror the SIIT-DC Gateway's configuration.
+B<clatd> may also be used to implement an SIIT-DC Edge Relay as described in
+I<I-D.ietf-v6ops-siit-dc-2xlat>. In this scenario, the PLAT is in reality a
+SIIT-DC Border Relay (see I<I-D.ietf-v6ops-siit-dc>) instead of a Stateful
+NAT64 (see I<RFC6146>). When used as a SIIT-DC Edge Relay, you will probably
+want to manually configure the settings I<clat-v4-addr>, I<clat-v6-addr>, and
+I<plat-prefix> to mirror the SIIT-DC Border Relay's configuration.
 
 It relies on the software package TAYGA by Nathan Lutchansky for the actual
 translation of packets between IPv4 and IPv6 (I<RFC 6145>) TAYGA may be
@@ -132,21 +132,20 @@ will bind to this address when communicating with external IPv4 destinations.
 In a standard 464XLAT environment with a stateful NAT64 serving as the PLAT,
 there should be no need to change the default.
 
-When using B<clatd> as an SIIT-DC Host Agent (cf.
-I-D.draft-anderson-v6ops-siit-dc-2xlat), you will want to set this to the
-IPv4 Service Address configured in the SIIT-DC Gateway. This way, local
-applications can correctly identify which public address they'll be using on
-the IPv4 internet, and will be able to provide fully functional references to
-it in application-level payload, and so on.
+When using B<clatd> as an SIIT-DC Edge Relay (I<I-D.ietf-v6ops-siit-dc-2xlat>),
+you will want to set this to the IPv4 Service Address configured in the SIIT-DC
+Border Relay. This way, local applications can correctly identify which public
+address they'll be using on the IPv4 internet, and will be able to provide
+fully functional references to it in application-level payload, and so on.
 
 The default address is one from I<RFC 7335>.
 
 =item B<clat-v6-addr=ipv6-address> (default: auto-generated)
 
 The IPv6 address of the CLAT. Traffic to/from the B<clat-v4-addr> will be
-translated into this address. When using B<clatd> as an SIIT-DC Host Agent,
-you will want to set this to the IPv6 address in the Static Address Mapping
-configured in the SIIT-DC Gateway.
+translated into this address. When using B<clatd> as an SIIT-DC Edge Relay, you
+will want to set this to the same IPv6 address in the Explicit Address Mapping
+configured in the SIIT-DC Border Relay.
 
 By default, B<clatd> will attempt to figure out which network device will be
 used for traffic towards the PLAT, see if there is any SLAAC-based globally
@@ -343,6 +342,6 @@ ip(8), ip6tables(8), tayga(8), tayga.conf(5)
 
 RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335
 
-I-D.anderson-v6ops-siit-dc, I-D.anderson-v6ops-siit-dc-2xlat
+I-D.ietf-v6ops-siit-dc, I-D.ietf-v6ops-siit-dc-2xlat, I-D.ietf-v6ops-siit-eam
 
 =cut
