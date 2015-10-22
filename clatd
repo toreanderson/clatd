@@ -37,6 +37,7 @@ $CFG{"tayga-v4-addr"} = "192.0.0.2";	# from RFC 7335
 $CFG{"v4-conncheck-enable"} = 1;	# exit if there's already a defroute
 $CFG{"v4-conncheck-delay"} = 10;	# seconds before checking for v4 conn.
 $CFG{"v4-defaultroute-enable"} = 1;	# add a v4 defaultroute via the CLAT?
+$CFG{"v4-defaultroute-replace"} = 0;	# replace existing v4 defaultroute?
 $CFG{"v4-defaultroute-metric"} = 2048;	# metric for the IPv4 defaultroute
 $CFG{"v4-defaultroute-mtu"} = 1260;	# MTU for the IPv4 defaultroute
 
@@ -569,6 +570,7 @@ my @cleanup_accept_ra_sysctls;		# accept_ra sysctls to be reset to '1'
 my $cleanup_zero_proxynd_sysctl;	# zero proxy_ndp sysctl if set
 my $cleanup_remove_proxynd_entry,	# true if having added proxynd entry
 my $cleanup_remove_ip6tables_rules;	# true if having added ip6tables rules
+my @cleanup_restore_v4_defaultroutes;   # temporarily replaced defaultroutes
 
 sub cleanup_and_exit {
   my $exitcode = shift;
@@ -607,6 +609,10 @@ sub cleanup_and_exit {
         "-o", cfg("plat-dev"), qw(-j ACCEPT));
     cmd(\&w, cfg("cmd-ip6tables"), qw(-D FORWARD -i), cfg("plat-dev"),
         "-o", cfg("clat-dev"), qw(-j ACCEPT));
+  }
+  for my $rt (@cleanup_restore_v4_defaultroutes) {
+    d("Cleanup: Restoring temporarily replaced IPv4 default route");
+    cmd(\&w, cfg("cmd-ip"), qw(-4 route add), @{$rt});
   }
 
   exit($exitcode);
@@ -730,7 +736,7 @@ if(!defined($CFG{"ip6tables-enable"})) {
 # Step 1: Detect if there is an IPv4 default route on the system from before.
 # If so we have no need for 464XLAT, and we can just exit straight away
 #
-if(cfgbool("v4-conncheck-enable")) {
+if(cfgbool("v4-conncheck-enable") and !cfgbool("v4-defaultroute-replace")) {
   my $delay = cfgint("v4-conncheck-delay");
   p("Checking if this system already has IPv4 connectivity ",
     $delay ? "in $delay sec(s)" : "now");
@@ -845,6 +851,17 @@ cmd(\&err, cfg("cmd-ip"), qw(-4 address add), cfg("clat-v4-addr"),
     "dev", cfg("clat-dev"));
 cmd(\&err, cfg("cmd-ip"), qw(-6 route add), cfg("clat-v6-addr"),
     "dev", cfg("clat-dev"));
+if(cfgbool("v4-defaultroute-replace")) {
+  open(my $fd, '-|', cfg("cmd-ip"), qw(-4 route show default))
+    or err("'ip -4 route show default' failed to execute");
+  while(<$fd>) {
+    my @rt = split(/\s+/, $_);
+    d("Replacing pre-existing IPv4 default route: @rt");
+    cmd(\&err, cfg("cmd-ip"), qw(-4 route del), @rt);
+    push(@cleanup_restore_v4_defaultroutes, \@rt);
+  }
+  close($fd) or err("'ip -4 route show default' failed");
+}
 if(cfgbool("v4-defaultroute-enable")) {
   my @cmdline = (qw(-4 route add default dev), cfg("clat-dev"));
   if(cfgint("v4-defaultroute-metric")) {

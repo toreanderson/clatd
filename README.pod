@@ -266,6 +266,9 @@ system has IPv4 connectivity, disable this setting. You may instead use the
 B<v4-defaultroute-enable> and B<v4-defaultroute-metric> settings to prevent
 B<clatd> from interfering with native IPv4 connectivity.
 
+Note that enabling B<v4-defaultroute-replace> will override
+B<v4-conncheck-enable> and unconditionally disable IPv4 connectivity checking.
+
 =item B<v4-conncheck-delay=seconds> (default: I<10>)
 
 When performing an IPv4 connectivity check, wait this number of seconds
@@ -285,6 +288,23 @@ typical 464XLAT environment, you want this. However when using B<clatd> in
 an environment where native IPv4 connectivity is also present, you might want
 to disable this and instead control manually which IPv4 destinations is
 reached through the CLAT and which are not.
+
+=item B<v4-defaultroute-replace=bool> (default: I<no>)
+
+Instructs B<clatd> to remove any pre-existing IPv4 default routes, replacing it
+with one pointing to the CLAT (assuming B<v4-defaultroute-enable> is I<yes>).
+The replacement is temporary, any pre-existing routes that were removed will be
+restored when B<clatd> is shutting down.
+
+Note that nothing prevents software like a connection manager or a DHCPv4
+client daemon from re-adding any replaced routes while B<clatd> is running.
+
+If you enable B<v4-defaultroute-replace> while at the same time disabling
+B<v4-defaultroute-enable>, B<clatd> will remove any pre-existing IPv4 default
+routes but not add any of its own.
+
+Setting B<v4-defaultroute-replace> to I<yes>will disable the IPv4 connectivity
+check.
 
 =item B<v4-defaultroute-metric=integer> (default: I<2048>)
 
