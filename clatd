@@ -40,6 +40,7 @@ $CFG{"v4-defaultroute-enable"} = 1;	# add a v4 defaultroute via the CLAT?
 $CFG{"v4-defaultroute-replace"} = 0;	# replace existing v4 defaultroute?
 $CFG{"v4-defaultroute-metric"} = 2048;	# metric for the IPv4 defaultroute
 $CFG{"v4-defaultroute-mtu"} = 1260;	# MTU for the IPv4 defaultroute
+$CFG{"v4-defaultroute-advmss"} = 0;	# TCP MSS for the IPv4 defaultroute
 
 
 #
@@ -868,7 +869,11 @@ if(cfgbool("v4-defaultroute-enable")) {
     push(@cmdline, ("metric", cfgint("v4-defaultroute-metric")))
   }
   if(cfgint("v4-defaultroute-mtu")) {
-    push(@cmdline, ("mtu", cfgint("v4-defaultroute-mtu")))
+    push(@cmdline, ("mtu", cfgint("v4-defaultroute-mtu")));
+    push(@cmdline, ("advmss", cfgint("v4-defaultroute-advmss") ||
+                              cfgint("v4-defaultroute-mtu") - 40));
+  } elsif(cfgint("v4-defaultroute-advmss")) {
+    push(@cmdline, ("advmss", cfgint("v4-defaultroute-advmss")));
   }
   p("Adding IPv4 default route via the CLAT");
   cmd(\&err, cfg("cmd-ip"), @cmdline);

@@ -326,6 +326,17 @@ If you know that the IPv6 Path MTU between the host and the PLAT is larger
 than 1280, you may increase this, but then you should also recompile TAYGA
 with a larger B<ipv6_offlink_mtu> setting in I<conffile.c>.
 
+=item B<v4-defaultroute-advmss=integer> (default: B<v4-defaultroute-mtu> - 40)
+
+The "advmss" value assigned to the the default route potining to the CLAT. This
+controls the advertised TCP MSS value for TCP connections made through the
+CLAT.
+
+You should normally not need to set this. By default the value is calculated by
+taking the value of B<v4-defaultroute-mtu> and substracting 40 (20 bytes for
+the IPv4 header + 20 bytes for the TCP header). If B<v4-defaultroute-mtu> is
+unset or 0, there is no default.
+
 =back
 
 =head1 LIMITATIONS
