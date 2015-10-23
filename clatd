@@ -139,7 +139,7 @@ sub cfgbool {
 #
 sub cfgint {
   my ($key) = @_;
-  d2("cfgstr($key)");
+  d2("cfgint($key)");
   if(!exists($CFG{$key})) {
     err("key '$key' doesn't exist in config hash");
   }
@@ -154,7 +154,7 @@ sub cfgint {
 #
 sub cfg {
   my ($key) = @_;
-  d2("cfgstr($key)");
+  d2("cfg($key)");
   if(!exists($CFG{$key})) {
     err("key '$key' doesn't exist in config hash");
   }
