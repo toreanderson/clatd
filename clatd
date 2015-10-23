@@ -734,6 +734,9 @@ p("Using CLAT IPv6 address: ", $CFG{"clat-v6-addr"});
 if(!defined($CFG{"ip6tables-enable"})) {
   $CFG{"ip6tables-enable"} = -e "/sys/module/ip6table_filter" ? 1 : 0;
 }
+if(!$CFG{"v4-defaultroute-advmss"} and cfgint("v4-defaultroute-mtu")) {
+  $CFG{"v4-defaultroute-advmss"} = $CFG{"v4-defaultroute-mtu"} - 40;
+}
 
 #
 # Step 1: Detect if there is an IPv4 default route on the system from before.
@@ -872,9 +875,8 @@ if(cfgbool("v4-defaultroute-enable")) {
   }
   if(cfgint("v4-defaultroute-mtu")) {
     push(@cmdline, ("mtu", cfgint("v4-defaultroute-mtu")));
-    push(@cmdline, ("advmss", cfgint("v4-defaultroute-advmss") ||
-                              cfgint("v4-defaultroute-mtu") - 40));
-  } elsif(cfgint("v4-defaultroute-advmss")) {
+  }
+  if(cfgint("v4-defaultroute-advmss")) {
     push(@cmdline, ("advmss", cfgint("v4-defaultroute-advmss")));
   }
   p("Adding IPv4 default route via the CLAT");
