@@ -20,6 +20,8 @@ my $VERSION = "1.3";
 my %CFG;
 $CFG{"quiet"} = 0;			# suppress normal output
 $CFG{"debug"} = 0;			# debugging output level
+$CFG{"script-up"} = undef;              # sh script to run when starting up
+$CFG{"script-down"} = undef;            # sh script to run when shutting down
 $CFG{"clat-dev"} = "clat";		# TUN interface name to use
 $CFG{"clat-v4-addr"} = "192.0.0.1";	# from RFC 7335
 $CFG{"clat-v6-addr"} = undef;		# derive from existing SLAAC addr
@@ -879,6 +881,18 @@ if(cfgbool("v4-defaultroute-enable")) {
   cmd(\&err, cfg("cmd-ip"), @cmdline);
 }
 
+# Inject %CFG into %ENV and then run the up script
+for my $key (sort keys(%CFG)) {
+  my $var = $key;
+  $var =~ y/-/_/;
+  d2(sprintf("Script env: %s=%s", $key, $CFG{$key} || ''));
+  $ENV{$var} = $CFG{$key};
+}
+if(cfg("script-up")) {
+  d("Running custom startup script: ", cfg("script-up"));
+  cmd(\&err, cfg("script-up"));
+}
+
 #
 # All preparation done! We can now start TAYGA, which will handle the actual
 # translation of IP packets.
@@ -899,6 +913,11 @@ $SIG{'INT'} = 'DEFAULT';
 $SIG{'TERM'} = 'DEFAULT';
 
 #
-# TAYGA exited, probably because we're shutting down. Cleanup and exit.
+# TAYGA exited, probably because we're shutting down. Run the down script, then
+# cleanup and exit.
 #
+if(cfg("script-down")) {
+  d("Running custom shutdown script: ", cfg("script-down"));
+  cmd(\&err, cfg("script-down"));
+}
 cleanup_and_exit(0);

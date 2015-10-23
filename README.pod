@@ -119,6 +119,57 @@ Set this to 1 to get debugging output from B<clatd>, or 2 to get even more of
 the stuff. These are the equivalent of providing the command line option I<-d>
 the specified number of times.
 
+=item B<script-up=string> (no default)
+
+Specify a custom script to be run when B<clatd> is starting up. The invocation
+of this script is the last thing that happens before TAYGA starts up, so all
+the preparations have been completed at that point (i.e., the B<clat-dev>
+exists and has routing/addressing configured, forwarding has been enabled, and
+so on).
+
+The script is run by the system shell, so you can do everything you could in an
+interactive shell: run multiple commands by separating them by semi-colon or
+double ampersands, use standard if/else statements, use variable substitutions,
+redirect output to files, set up command pipelines, and so on. However it must
+all be on one line, so if you want to do complex things or use some other
+programming language it's probably better to put the script itself in a
+separate executable file and just make B<script-up> invoke that file instead.
+
+If the script returns a nonzero exit status, this is considered a fatal error,
+and B<clatd> will abort. This can be prevented by appending I<|| true> at the
+end of the script.
+
+All of B<clatd>'s configuration settings are available as standard variables in
+the script's environment (hyphens are replaced with underscores).
+
+Logging or debug messages from the script may simply be sent to stdout, where
+it will be picked up by the init system along with B<clatd>'s own output. The
+script may of course consult the I<$quiet> and I<$debug> environment variables
+in order to determine how much output is appropriate.
+
+The script should not be enclosed in quotes in the configuration file (even
+though it contains whitespace). For example:
+
+B<script-up=echo `date -Ins`: clatd started on $clat_dev | tee -a ~/clatd.log>
+
+If on the other hand you want to supply a B<script-up> containing whitespace
+directly B<clatd>'s command line, quoting is required in order to prevent the
+shell from splitting it up and into multiple command line arguments. For
+example:
+
+B<clatd 'script-up=ip route add 192.0.2.0/24 dev $clat_dev || true'>
+
+=item B<script-up=string> (no default)
+
+This works exactly the same as B<script-up>, only that this script is run right
+after TAYGA has exited, before the clean-up process of restoring any settings
+that were changed.
+
+An unsuccessful exit code from B<script-down> will cause B<clatd> to exit
+unsuccessfully too. Beyond that an unsuccessful exit won't change anything,
+because B<script-down> is invoked at a point in time where the only thing left
+for B<clatd> to do is to clean up after itself and exit anyway.
+
 =item B<clat-dev=string> (default: I<clat>)
 
 The name of the network device used by the CLAT. There should be no reason to
