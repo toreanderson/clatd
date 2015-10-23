@@ -73,18 +73,17 @@ sub err {
 #
 sub cmd {
   my $msgsub = shift;
-  my $command = shift;
-  my @cmdline = @_;
+  my @cmd = @_;
 
-  d("cmd($command @cmdline)");
+  d("cmd(@cmd)");
 
-  if(system($command, @cmdline)) {
+  if(system(@cmd)) {
     if($? == -1) {
-      &{$msgsub}("cmd($command @cmdline) failed to execute");
+      &{$msgsub}("cmd(@cmd) failed to execute");
     } elsif($? & 127) {
-      &{$msgsub}("cmd($command @cmdline) died with signal ", ($? & 127));
+      &{$msgsub}("cmd(@cmd) died with signal ", ($? & 127));
     } else {
-      &{$msgsub}("cmd($command @cmdline) returned ", ($? >> 127));
+      &{$msgsub}("cmd(@cmd) returned ", ($? >> 127));
     }
   }
   return $?;
