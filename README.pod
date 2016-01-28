@@ -159,7 +159,7 @@ example:
 
 B<clatd 'script-up=ip route add 192.0.2.0/24 dev $clat_dev || true'>
 
-=item B<script-up=string> (no default)
+=item B<script-down=string> (no default)
 
 This works exactly the same as B<script-up>, only that this script is run right
 after TAYGA has exited, before the clean-up process of restoring any settings
@@ -354,7 +354,7 @@ If you enable B<v4-defaultroute-replace> while at the same time disabling
 B<v4-defaultroute-enable>, B<clatd> will remove any pre-existing IPv4 default
 routes but not add any of its own.
 
-Setting B<v4-defaultroute-replace> to I<yes>will disable the IPv4 connectivity
+Setting B<v4-defaultroute-replace> to I<yes> will disable the IPv4 connectivity
 check.
 
 =item B<v4-defaultroute-metric=integer> (default: I<2048>)
