@@ -7,7 +7,7 @@ License: Copyright (c) 2014 Tore Anderson <tore@fud.no>
 Group: Utilities/System
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}
 BuildArch: noarch
-Packager: David Summers <david@summersoft.fay.ar.us>
+Packager: David Summers <david@summersoft.fay-ar.us>
 Url: https://github.com/toreanderson/clatd
 Requires: perl
 Requires: perl-IO-Socket-INET6
