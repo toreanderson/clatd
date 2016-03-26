@@ -44,11 +44,16 @@ cp clatd $RPM_BUILD_ROOT/usr/sbin
 mkdir -p $RPM_BUILD_ROOT/etc/init
 cp scripts/clatd.upstart $RPM_BUILD_ROOT/etc/init/clatd.conf
 
+# Copy NetworkManager script.
+mkdir -p $RPM_BUILD_ROOT/etc/NetworkManager/dispatcher.d
+cp scripts/clatd.networkmanager $RPM_BUILD_ROOT/etc/NetworkManager/dispatcher.d/50-clatd
+
 %clean
 rm -rf %{buildroot}
 
 %files
 %defattr(-,root,root)
 %doc README.pod LICENCE
+%attr(0755,-,-) /etc/NetworkManager/dispatcher.d/50-clatd
 /etc/init/*
 /usr/sbin/*
