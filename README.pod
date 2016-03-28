@@ -14,11 +14,11 @@ make use of DNS64 (for example because they use legacy AF_INET socket calls,
 or if they are simply not using DNS64).
 
 B<clatd> may also be used to implement an SIIT-DC Edge Relay as described in
-I<I-D.ietf-v6ops-siit-dc-2xlat>. In this scenario, the PLAT is in reality a
-SIIT-DC Border Relay (see I<I-D.ietf-v6ops-siit-dc>) instead of a Stateful
-NAT64 (see I<RFC6146>). When used as a SIIT-DC Edge Relay, you will probably
-want to manually configure the settings I<clat-v4-addr>, I<clat-v6-addr>, and
-I<plat-prefix> to mirror the SIIT-DC Border Relay's configuration.
+I<RFC 7756>. In this scenario, the PLAT is in reality a SIIT-DC Border Relay
+(see I<RFC 7755>) instead of a Stateful NAT64 (see I<RFC6146>). When used as a
+SIIT-DC Edge Relay, you will probably want to manually configure the settings
+I<clat-v4-addr>, I<clat-v6-addr>, and I<plat-prefix> to mirror the SIIT-DC
+Border Relay's configuration.
 
 It relies on the software package TAYGA by Nathan Lutchansky for the actual
 translation of packets between IPv4 and IPv6 (I<RFC 6145>) TAYGA may be
@@ -183,11 +183,11 @@ will bind to this address when communicating with external IPv4 destinations.
 In a standard 464XLAT environment with a stateful NAT64 serving as the PLAT,
 there should be no need to change the default.
 
-When using B<clatd> as an SIIT-DC Edge Relay (I<I-D.ietf-v6ops-siit-dc-2xlat>),
-you will want to set this to the IPv4 Service Address configured in the SIIT-DC
-Border Relay. This way, local applications can correctly identify which public
-address they'll be using on the IPv4 internet, and will be able to provide
-fully functional references to it in application-level payload, and so on.
+When using B<clatd> as an SIIT-DC Edge Relay (I<RFC 7756>), you will want to
+set this to the IPv4 Service Address configured in the SIIT-DC Border Relay.
+This way, local applications can correctly identify which public address
+they'll be using on the IPv4 internet, and will be able to provide fully
+functional references to it in application-level payload, and so on.
 
 The default address is one from I<RFC 7335>.
 
@@ -436,8 +436,7 @@ SOFTWARE.
 
 ip(8), ip6tables(8), tayga(8), tayga.conf(5)
 
-RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335
-
-I-D.ietf-v6ops-siit-dc, I-D.ietf-v6ops-siit-dc-2xlat, I-D.ietf-v6ops-siit-eam
+RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335 RFC 7755, RFC 7756,
+RFC 7757
 
 =cut

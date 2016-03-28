@@ -665,8 +665,8 @@ for (my $i = 0; $i < @ARGV;) {
     next;
   } elsif($ARGV[$i] =~ /^(-h|--help)$/) {
     print <<"EOF";
-clatd v$VERSION - a 464XLAT (RFC 6877) CLAT and SIIT-DC Host Agent
-             (I-D.anderson-v6ops-siit-dc-2xlat) implementation for Linux
+clatd v$VERSION - a 464XLAT (RFC 6877) CLAT and SIIT-DC Edge Relay
+             (RFC 7756) implementation for Linux
 EOF
     print "\n";
     print "  Usage:    clatd [-q] [-d [-d]] [-c config-file] ",
