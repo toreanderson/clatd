@@ -14,6 +14,11 @@
 # committing suicide from the restarts below
 [ "$DEVICE_IFACE" = "clat" ] && exit 0
 
+# We're only acting on interface "up" or "down" events. NM will run the
+# dispatcher scripts for other events we're not interested in, like the
+# hostname being set or a DHCP lease being renewed. Ignore those.
+[ "$2" != "up" ] && [ "$2" != "down" ] && exit 0
+
 # We simply restart clatd in all situations, as no matter if an interface
 # goes up or down, it may mean that the PLAT device changes, it may mean
 # native IPv4 appearing or disappearing, or it may mean that DNS64 became
