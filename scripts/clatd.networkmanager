@@ -26,8 +26,8 @@
 # start from scratch than to figure out if a restart is truly necessary
 
 # systemd-based distros
-if test -x /usr/bin/systemctl; then
-  /usr/bin/systemctl restart clatd.service
+if which systemctl &> /dev/null; then
+  systemctl restart clatd.service
 fi
 
 # upstart-based distros
