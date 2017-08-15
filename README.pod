@@ -94,14 +94,14 @@ distros (in particular RHEL and its clones). It is however available in EPEL
 =head1 CONFIGURATION
 
 B<clatd> is designed to be able to run without any user-supplied configuration
-in most cases. However, user-specified onfiguration settings may be added to
+in most cases. However, user-specified configuration settings may be added to
 the configuration file, the path to which may be given on the command line
 using the I<-c> option, or if it is not, the default location
 I</etc/clatd.conf> is used. Configuration settings may also be given directly
 on the command line when starting B<clatd>, which takes precedence over settings
 in the configuration file.
 
-Settings are of the form B<key=value>. A list of recogniced keys and their
+Settings are of the form B<key=value>. A list of recognised keys and their
 possible values follow below:
 
 =over
@@ -280,7 +280,7 @@ DNS64 answers using the method in I<RFC 7050>.
 Controls whether or not B<clatd> should add a Proxy-ND entry for the CLAT IPv6
 address on the network device facing the PLAT. This is probably necessary
 on Ethernet networks (otherwise the upstream IPv6 router won't know where to
-send packets to the CLAT's IPv6 adderss), but likely not necessary on
+send packets to the CLAT's IPv6 address), but likely not necessary on
 point-to-point links like PPP or 3GPP mobile broadband, as in those cases
 IPv6 ND isn't used. However it doesn't hurt to add Proxy-ND entries in that
 case, either.
