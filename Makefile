@@ -1,3 +1,7 @@
+DESTDIR=
+PREFIX=/usr
+SYSCONFDIR=/etc
+
 APT_GET:=$(shell which apt-get)
 DNF_OR_YUM:=$(shell which dnf || which yum)
 INITCTL:=$(shell which initctl)
@@ -5,17 +9,17 @@ SYSTEMCTL:=$(shell which systemctl)
 TAYGA:=$(shell which tayga)
 
 install:
-	# Install the main script to /usr/sbin
-	install -m0755 clatd /usr/sbin/clatd
+	# Install the main script
+	install -m0755 clatd $(DESTDIR)$(PREFIX)/sbin/clatd
 	# Install manual page if pod2man is installed
-	pod2man --name clatd --center "clatd - a CLAT implementation for Linux" --section 8 README.pod /usr/share/man/man8/clatd.8 && gzip -f9 /usr/share/man/man8/clatd.8 || echo "pod2man is required to generate manual page"
+	pod2man --name clatd --center "clatd - a CLAT implementation for Linux" --section 8 README.pod $(DESTDIR)$(PREFIX)/share/man/man8/clatd.8 && gzip -f9 $(DESTDIR)$(PREFIX)/share/man/man8/clatd.8 || echo "pod2man is required to generate manual page"
 	# Install systemd service file if applicable for this system
-	if test -x "$(SYSTEMCTL)" && test -d "/etc/systemd/system"; then install -m0644 scripts/clatd.systemd /etc/systemd/system/clatd.service && $(SYSTEMCTL) daemon-reload; fi
-	if test -e "/etc/systemd/system/clatd.service" && test ! -e "/etc/systemd/system/multi-user.target.wants/clatd.service"; then $(SYSTEMCTL) enable clatd.service; fi
+	if test -x "$(SYSTEMCTL)" && test -d "$(DESTDIR)$(SYSCONFDIR)/systemd/system"; then install -m0644 scripts/clatd.systemd $(DESTDIR)$(SYSCONFDIR)/systemd/system/clatd.service && $(SYSTEMCTL) daemon-reload; fi
+	if test -e "$(DESTDIR)$(SYSCONFDIR)/systemd/system/clatd.service" && test ! -e "$(DESTDIR)$(SYSCONFDIR)/systemd/system/multi-user.target.wants/clatd.service"; then $(SYSTEMCTL) enable clatd.service; fi
 	# Install upstart service file if applicable for this system
-	if test -x "$(INITCTL)" && test -d "/etc/init"; then install -m0644 scripts/clatd.upstart /etc/init/clatd.conf; fi
+	if test -x "$(INITCTL)" && test -d "$(DESTDIR)$(SYSCONFDIR)/init"; then install -m0644 scripts/clatd.upstart $(DESTDIR)$(SYSCONFDIR)/init/clatd.conf; fi
 	# Install NetworkManager dispatcher script if applicable
-	if test -d /etc/NetworkManager/dispatcher.d; then install -m0755 scripts/clatd.networkmanager /etc/NetworkManager/dispatcher.d/50-clatd; fi
+	if test -d $(DESTDIR)$(SYSCONFDIR)/NetworkManager/dispatcher.d; then install -m0755 scripts/clatd.networkmanager $(DESTDIR)$(SYSCONFDIR)/NetworkManager/dispatcher.d/50-clatd; fi
 
 installdeps:
 	# .deb/apt-get based distros
