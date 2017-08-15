@@ -87,9 +87,9 @@ of B<clatd> and its dependencies:
 
 This will install B<clatd> to /usr/sbin, plus install systemd, upstart, and/or
 NetworkManager scripts if your distribution appears to be using them, and
-install all the dependencies. Note that TAYGA isn't available in RPM format,
-so on RedHat/Fedora the installdeps target will install gcc and attempt to
-compile TAYGA from source.
+install all the dependencies. Note that TAYGA isn't available in all RPM-based
+distros (in particular RHEL and its clones). It is however available in EPEL
+(see L<https://fedoraproject.org/wiki/EPEL>).
 
 =head1 CONFIGURATION
 
