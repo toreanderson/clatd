@@ -219,9 +219,9 @@ sub sysctl {
 
 #
 # Look for either of the WKAs for ipv4only.arpa (192.0.0.170 and .171) in an
-# IPv6 address at all of the locations RFC 6052 says it can occur. If it's
-# present at any of those locations (but no more than once), return the
-# inferred translation prefix.
+# IPv6 address at all of the locations RFC 6052 says it can occur, starting at
+# the longest prefix length. If it's present at any of those locations, return
+# the inferred translation prefix.
 #
 sub find_rfc7050_wka {
   my $AAAA = shift;
@@ -248,7 +248,7 @@ sub find_rfc7050_wka {
 
   my $discovered_pfx_len;
 
-  for my $len (keys(%rfc6052table)) {
+  outer: for my $len (sort {$b <=> $a} keys(%rfc6052table)) {
     d2("Looking for Well-Known Addresses at prefix length /$len");
     my $maskedip = $ip->intip();
     my $mask = Net::IP->new($rfc6052table{"$len"}{"mask"}, 6);
@@ -269,13 +269,9 @@ sub find_rfc7050_wka {
       }
 
       if($maskedip == $wkaint->intip) {
-        if($discovered_pfx_len) {
-          w("Found WKA at two locations in ", $ip->sort,
-            "(/$discovered_pfx_len and /$len) - ignoring");
-          return;
-        }
         d2("Found it!");
         $discovered_pfx_len = $len;
+        last outer;
       } else {
         d2("Didn't find it");
       }
