@@ -393,6 +393,7 @@ sub get_plat_dev {
   if(!$plat_prefix) {
     err("get_plat_dev(): No PLAT prefix to work with");
   }
+  $plat_prefix =~ s|/\d+$||;
   open(my $fd, '-|', cfg("cmd-ip"), qw(-6 route get), $plat_prefix)
     or err("get_plat_dev(): 'ip -6 route get $plat_prefix' failed to execute");
   while(<$fd>) {
