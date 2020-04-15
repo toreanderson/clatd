@@ -579,6 +579,7 @@ sub get_clat_v6_addr {
 my $cleanup_remove_clat_dev;		# true if having created it
 my $cleanup_delete_taygaconf;		# true if having made a temp confile
 my $cleanup_zero_forwarding_sysctl;	# zero forwarding sysctl if set
+my $cleanup_zero_forwarding_platdev_sysctl;	# zero forwarding sysctl if set on platdev
 my @cleanup_accept_ra_sysctls;		# accept_ra sysctls to be reset to '1'
 my $cleanup_zero_proxynd_sysctl;	# zero proxy_ndp sysctl if set
 my $cleanup_remove_proxynd_entry,	# true if having added proxynd entry
@@ -600,6 +601,10 @@ sub cleanup_and_exit {
   if(defined($cleanup_zero_forwarding_sysctl)) {
     d("Cleanup: Resetting forwarding sysctl to 0");
     sysctl("net/ipv6/conf/all/forwarding", 0);
+  }
+  if(defined($cleanup_zero_forwarding_platdev_sysctl)) {
+    d("Cleanup: Resetting platdev forwarding sysctl to 0");
+    sysctl("net/ipv6/conf/" . $CFG{"plat-dev"} . "/forwarding", 0);
   }
   for my $sysctl (@cleanup_accept_ra_sysctls) {
     d("Cleanup: Resetting $sysctl to 1");
@@ -810,7 +815,7 @@ if(cfgbool("forwarding-enable")) {
       # Don't touch the ctl for the "all" interface, as that will probably
       # change interfaces that have accept_ra set to 0 also.
       next if($ctl eq "/proc/sys/net/ipv6/conf/all/accept_ra");
-      
+
       if(sysctl($ctl) == 1) {
         d("Changing $ctl from 1 to 2 to prevent connectivity loss after ",
           "enabling IPv6 forwarding");
@@ -820,6 +825,28 @@ if(cfgbool("forwarding-enable")) {
     }
     sysctl("net/ipv6/conf/all/forwarding", 1);
     $cleanup_zero_forwarding_sysctl = 0;
+  }
+  # In some scenarioes, such as a client with NetworkManager, nm will always reset
+  # the interface forwarding flag to 0 on a device change - the flag of 0 on a device
+  # always over-rides the gloabl flag of "1" on all forwarding. In this case, we need
+  # to always reset the flag to 1 on the plat dev. It could be the case that all forwarding
+  # is already set to 1, so we also here need to check the ra flag - which again, nm
+  # will set to 0 or 1 depending on the type of client driver in use.
+  if(sysctl("net/ipv6/conf/" . $CFG{"plat-dev"} . "/forwarding") == 0) {
+    p("Enabling IPv6 forwarding on " . $CFG{"plat-dev"});
+
+    # If this was already set from 1 -> 2 in the above, we'll skip due to
+    # the if == 1 check here, but the reset will still occur.
+    my $ctl = "net/ipv6/conf/" . $CFG{"plat-dev"} . "/accept_ra";
+    if(sysctl($ctl) == 1) {
+        d("Changing $ctl from 1 to 2 to prevent connectivity loss after ",
+          "enabling IPv6 forwarding");
+        sysctl($ctl, 2);
+        push(@cleanup_accept_ra_sysctls, $ctl);
+    }
+
+    sysctl("net/ipv6/conf/" . $CFG{"plat-dev"} . "/forwarding", 1);
+    $cleanup_zero_forwarding_platdev_sysctl = 0;
   }
 }
 
