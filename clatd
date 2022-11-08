@@ -328,7 +328,7 @@ sub find_rfc7050_wka {
 sub get_plat_prefix {
   p("Performing DNS64-based PLAT prefix discovery (cf. RFC 7050)");
 
-  require IO::Socket::INET6; # needed by Net::DNS for querying IPv6 servers
+  require IO::Socket::IP; # needed by Net::DNS for querying IPv6 servers
   require Net::DNS;
 
   my @dns64_servers = split(",", cfg("dns64-servers") || "");
