@@ -27,7 +27,7 @@
 
 # systemd-based distros
 if which systemctl &> /dev/null; then
-  systemctl restart clatd.service
+  systemctl --no-block restart clatd.service
 fi
 
 # upstart-based distros

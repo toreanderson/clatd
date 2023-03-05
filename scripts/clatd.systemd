@@ -12,6 +12,7 @@
 Description=464XLAT CLAT daemon
 Documentation=man:clatd(8)
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
