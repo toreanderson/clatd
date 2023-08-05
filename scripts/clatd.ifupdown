@@ -1,0 +1,37 @@
+#!/bin/sh
+
+. /etc/default/clatd
+
+use_clatd=0
+
+for iface in $CLATD_IFACES
+do
+	if [ "$iface" = "$IFACE" ]
+	then
+		use_clatd=1
+		break
+	fi
+done
+
+if [ "$LOGICAL" = "$CLATD_LOGICAL" ]
+then
+	use_clatd=1
+fi
+
+if [ "$use_clatd" -ne 1 ]
+then
+	exit 0
+fi
+
+case "$PHASE" in
+	post-up)
+		systemctl start clatd@"$IFACE"
+		exit 0
+		;;
+	pre-down)
+		systemctl stop clatd@"$IFACE"
+		;;
+	*)
+		exit 0
+		;;
+esac
