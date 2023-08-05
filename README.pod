@@ -275,6 +275,11 @@ The IPv6 translation prefix into which the PLAT maps the IPv4 internet. See
 I<RFC 6052> for a closer description. By default, this is auto-detected from
 DNS64 answers using the method in I<RFC 7050>.
 
+=item B<plat-fallback-prefix> (no default)
+
+The IPv6 translation prefix fallback. This is used if no plat-prefix is set
+or auto detected.
+
 =item B<proxynd-enable> (default: I<yes>)
 
 Controls whether or not B<clatd> should add a Proxy-ND entry for the CLAT IPv6

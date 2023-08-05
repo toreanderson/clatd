@@ -47,6 +47,7 @@ $CFG{"forwarding-enable"} = 1;		# enable ipv6 forwarding?
 $CFG{"ip6tables-enable"} = undef;	# allow clat<->plat traffic?
 $CFG{"plat-dev"} = undef;		# PLAT-facing device, default detect
 $CFG{"plat-prefix"} = undef;		# detect using DNS64 by default
+$CFG{"plat-fallback-prefix"} = undef;	# fallback prefix if no prefix is found
 $CFG{"proxynd-enable"} = 1;		# add proxy-nd entry for clat?
 $CFG{"tayga-conffile"} = undef;		# make a temporary one by default
 $CFG{"tayga-v4-addr"} = "192.0.0.2";	# from RFC 7335
@@ -716,6 +717,7 @@ p("Starting clatd v$VERSION by Tore Anderson <tore\@fud.no>");
 # Step 1: Fill in any essential blanks in the configuration by auto-detecting
 # any missing values.
 $CFG{"plat-prefix"} ||= get_plat_prefix();
+$CFG{"plat-prefix"} ||= $CFG{"plat-fallback-prefix"};
 if(!$CFG{"plat-prefix"}) {
   w("No PLAT prefix was discovered or specified; 464XLAT cannot work.");
   exit 0;
