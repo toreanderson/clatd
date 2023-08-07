@@ -1,5 +1,17 @@
 #!/bin/sh
 
+# clatd(8) integration in interfaces(5)
+
+# To use just copy this script to /etc/network/if-up.d/ and
+# /etc/network/if-down.d/
+
+# To configure which connection should include clatd the file
+# /etc/default/clatd is used. To enable clatd on a interface
+# include the interface in CLATD_IFACES (space sperated)
+
+# For logical intefaces (i.e. wpa_supplicant integration) you
+# can also set one CLATD_LOGICAL. See interfaces(5) for details.
+
 . /etc/default/clatd
 
 use_clatd=0
