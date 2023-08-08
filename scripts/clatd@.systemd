@@ -1,0 +1,26 @@
+#
+# clatd service file for systemd
+#
+# Install it to:  /etc/systemd/system/clatd@.service
+# Start it with:  systemctl start clatd@iface.service
+# Stop it with:   systemctl stop clatd@iface.service
+#
+# This is to dynamicaly enable and disable the clat depending on the
+# connected network.
+# 
+# Written by Tore Anderson <tore@fud.no>
+# Updated by satanist <satanist+fsmi@bureaucracy.de>
+#
+
+[Unit]
+Description=464XLAT CLAT daemon
+Documentation=man:clatd(8)
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/clatd -c /etc/clatd/%i.conf
+
+[Install]
+WantedBy=multi-user.target
