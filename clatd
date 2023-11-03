@@ -84,7 +84,7 @@ sub err {
 #
 # Runs a command. First argument is what subroutine to call to a message if
 # the command doesn't exit successfully, second is the command itself, and
-# any more is the command line arguments.
+# any more are the command line arguments.
 #
 sub cmd {
   my $msgsub = shift;
@@ -98,7 +98,7 @@ sub cmd {
     } elsif($? & 127) {
       &{$msgsub}("cmd(@cmd) died with signal ", ($? & 127));
     } else {
-      &{$msgsub}("cmd(@cmd) returned ", ($? >> 127));
+      &{$msgsub}("cmd(@cmd) returned ", ($? >> 8));
     }
   }
   return $?;
