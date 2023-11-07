@@ -26,7 +26,7 @@
 use strict;
 use Net::IP;
 
-my $VERSION = "1.6";
+my $VERSION = "1.6nat46";
 
 #
 # Populate the global config hash with the default values
@@ -438,6 +438,15 @@ sub is_modified_eui64 {
   return ($ip & $mask) != $mask;
 }
 
+sub cleanup_handler {
+  p("Cleaning up and exiting");
+  if(cfg("script-down")) {
+    d("Running custom shutdown script: ", cfg("script-down"));
+    cmd(\&err, cfg("script-down"));
+  }
+  cleanup_and_exit(0);
+}
+
 
 #
 # This function considers any globally scoped IPv6 address on the PLAT-facing
@@ -577,7 +586,8 @@ sub get_clat_v6_addr {
 # below gets set as we go along, so that the cleanup subroutine can restore
 # stuff if necessary.
 #
-my $cleanup_remove_clat_dev;		# true if having created it
+my $cleanup_remove_tayga_clat_dev;	# true if having created it
+my $cleanup_remove_nat46_clat_dev;	# true if having created it
 my $cleanup_delete_taygaconf;		# true if having made a temp confile
 my $cleanup_zero_forwarding_sysctl;	# zero forwarding sysctl if set
 my @cleanup_accept_ra_sysctls;		# accept_ra sysctls to be reset to '1'
@@ -589,14 +599,22 @@ my @cleanup_restore_v4_defaultroutes;   # temporarily replaced defaultroutes
 sub cleanup_and_exit {
   my $exitcode = shift;
 
-  if(defined($cleanup_remove_clat_dev)) {
-    d("Cleanup: Removing CLAT device");
+  if(defined($cleanup_remove_tayga_clat_dev)) {
+    d("Cleanup: Removing TAYGA CLAT device");
     cmd(\&w, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--rmtun");
   }
   if(defined($cleanup_delete_taygaconf)) {
     d("Cleanup: Deleting TAYGA config file '", cfg("tayga-conffile"), "'");
     unlink(cfg("tayga-conffile"))
       or w("unlink('", cfg("tayga-conffile"), "') failed");
+  }
+  if(defined($cleanup_remove_nat46_clat_dev)) {
+    d("Cleanup: Removing nat46 CLAT device");
+    my $nat46_control_fh;
+    open($nat46_control_fh, ">/proc/net/nat46/control") or
+        err("Could not open nat46 control socket for writing");
+    print $nat46_control_fh "del ", cfg("clat-dev"), "\n";
+    close($nat46_control_fh) or err("close($nat46_control_fh: $!");
   }
   if(defined($cleanup_zero_forwarding_sysctl)) {
     d("Cleanup: Resetting forwarding sysctl to 0");
@@ -772,35 +790,40 @@ if(cfgbool("v4-conncheck-enable") and !cfgbool("v4-defaultroute-replace")) {
   d("Skipping IPv4 connectivity check at user request");
 }
 
+# Let's figure out if there's nat46 kernel module loaded
+my $nat46_controlfile = "/proc/net/nat46/control";
+my $use_nat46 = (-e $nat46_controlfile);
+
 
 
 #
 # Write out the TAYGA config file, either to the user-specified location,
 # or to a temporary file (which we'll delete later)
 #
-my $tayga_conffile = cfg("tayga-conffile");
-my $tayga_conffile_fh;
-if(!$tayga_conffile) {
-  require File::Temp;
-  ($tayga_conffile_fh, $tayga_conffile) = File::Temp::tempfile();
-  d2("Using temporary conffile for TAYGA: $tayga_conffile");
-  $CFG{"tayga-conffile"} = $tayga_conffile;
-  $cleanup_delete_taygaconf = 1;
-} else {
-  open($tayga_conffile_fh, ">$tayga_conffile") or
-    err("Could not open TAYGA config file '$tayga_conffile' for writing");
+unless($use_nat46) {
+  my $tayga_conffile = cfg("tayga-conffile");
+  my $tayga_conffile_fh;
+  if(!$tayga_conffile) {
+    require File::Temp;
+    ($tayga_conffile_fh, $tayga_conffile) = File::Temp::tempfile();
+    d2("Using temporary conffile for TAYGA: $tayga_conffile");
+    $CFG{"tayga-conffile"} = $tayga_conffile;
+    $cleanup_delete_taygaconf = 1;
+  } else {
+    open($tayga_conffile_fh, ">$tayga_conffile") or
+      err("Could not open TAYGA config file '$tayga_conffile' for writing");
+  }
+
+  print $tayga_conffile_fh "# Ephemeral TAYGA config file written by $0\n";
+  print $tayga_conffile_fh "# This file may be safely deleted at any time.\n";
+  print $tayga_conffile_fh "tun-device ", cfg("clat-dev"), "\n";
+  print $tayga_conffile_fh "prefix ", cfg("plat-prefix"), "\n";
+  print $tayga_conffile_fh "ipv4-addr ", cfg("tayga-v4-addr"), "\n";
+  print $tayga_conffile_fh "map ", cfg("clat-v4-addr"), " ",
+                           cfg("clat-v6-addr"),"\n";
+
+  close($tayga_conffile_fh) or err("close($tayga_conffile_fh: $!");
 }
-
-print $tayga_conffile_fh "# Ephemeral TAYGA config file written by $0\n";
-print $tayga_conffile_fh "# This file may be safely deleted at any time.\n";
-print $tayga_conffile_fh "tun-device ", cfg("clat-dev"), "\n";
-print $tayga_conffile_fh "prefix ", cfg("plat-prefix"), "\n";
-print $tayga_conffile_fh "ipv4-addr ", cfg("tayga-v4-addr"), "\n";
-print $tayga_conffile_fh "map ", cfg("clat-v4-addr"), " ",
-                         cfg("clat-v6-addr"),"\n";
-
-close($tayga_conffile_fh) or err("close($tayga_conffile_fh: $!");
-
 #
 # Enable IPv6 forwarding if necessary
 #
@@ -861,9 +884,18 @@ if(cfgbool("proxynd-enable")) {
 # route to the corresponding IPv6 address, and possibly an IPv4 default route
 #
 p("Creating and configuring up CLAT device '", cfg("clat-dev"), "'");
-cmd(\&err, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--mktun",
-    cfgint("debug") ? "-d" : "");
-$cleanup_remove_clat_dev = 1;
+if($use_nat46) {
+  my $nat46_control_fh;
+  open($nat46_control_fh, ">$nat46_controlfile") or
+      err("Could not open nat46 control socket for writing");
+  print $nat46_control_fh "add ", cfg("clat-dev"), "\n";
+  close($nat46_control_fh) or err("close($nat46_control_fh: $!");
+  $cleanup_remove_nat46_clat_dev = 1;
+} else {
+  cmd(\&err, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--mktun",
+      cfgint("debug") ? "-d" : "");
+  $cleanup_remove_tayga_clat_dev = 1;
+}
 cmd(\&err, cfg("cmd-ip"), qw(link set up dev), cfg("clat-dev"));
 cmd(\&err, cfg("cmd-ip"), qw(-4 address add), cfg("clat-v4-addr"),
     "dev", cfg("clat-dev"));
@@ -908,30 +940,49 @@ if(cfg("script-up")) {
 }
 
 #
-# All preparation done! We can now start TAYGA, which will handle the actual
+# All preparation done! We can now start nat46 or TAYGA, which will handle the actual
 # translation of IP packets.
 #
-p("Starting up TAYGA, using config file '$tayga_conffile'");
+if($use_nat46){
+  p("Setting up nat46 kernel module");
+  my $nat46_control_fh;
+  open($nat46_control_fh, ">$nat46_controlfile") or
+    err("Could not open nat46 control socket for writing");
+  print $nat46_control_fh "config ", cfg("clat-dev"), " local.style NONE\n";
+  print $nat46_control_fh "config ", cfg("clat-dev"), " local.v4 ", cfg("clat-v4-addr"), "/32\n";
+  print $nat46_control_fh "config ", cfg("clat-dev"), " local.v6 ", cfg("clat-v6-addr"), "/128\n";
+  print $nat46_control_fh "config ", cfg("clat-dev"), " remote.style RFC6052\n";
+  print $nat46_control_fh "config ", cfg("clat-dev"), " remote.v6 ", cfg("plat-prefix"), "\n";
+  close($nat46_control_fh) or err("close($nat46_control_fh: $!");
 
-# We don't want systemd etc. to actually kill this script when stopping the
-# service, just TAYGA (so that we can get around to cleaning up after
-# ourselves)
-$SIG{'INT'} = 'IGNORE';
-$SIG{'TERM'} = 'IGNORE';
+  # Nothing more to do here, we just set up a cleanup handler and sleep forever.
+  $SIG{'INT'} = \&cleanup_handler;
+  $SIG{'TERM'} = \&cleanup_handler;
+  sleep();
+} else {
+  my $tayga_conffile = cfg("tayga-conffile");
+  p("Starting up TAYGA, using config file '$tayga_conffile'");
 
-cmd(\&err, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--nodetach",
-    cfgint("debug") ? "-d" : "");
-p("TAYGA terminated, cleaning up and exiting");
+  # We don't want systemd etc. to actually kill this script when stopping the
+  # service, just TAYGA (so that we can get around to cleaning up after
+  # ourselves)
+  $SIG{'INT'} = 'IGNORE';
+  $SIG{'TERM'} = 'IGNORE';
 
-$SIG{'INT'} = 'DEFAULT';
-$SIG{'TERM'} = 'DEFAULT';
+  cmd(\&err, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--nodetach",
+      cfgint("debug") ? "-d" : "");
+  p("TAYGA terminated, cleaning up and exiting");
 
-#
-# TAYGA exited, probably because we're shutting down. Run the down script, then
-# cleanup and exit.
-#
-if(cfg("script-down")) {
-  d("Running custom shutdown script: ", cfg("script-down"));
-  cmd(\&err, cfg("script-down"));
+  $SIG{'INT'} = 'DEFAULT';
+  $SIG{'TERM'} = 'DEFAULT';
+
+  #
+  # TAYGA exited, probably because we're shutting down. Run the down script, then
+  # cleanup and exit.
+  #
+  if(cfg("script-down")) {
+    d("Running custom shutdown script: ", cfg("script-down"));
+    cmd(\&err, cfg("script-down"));
+  }
+  cleanup_and_exit(0);
 }
-cleanup_and_exit(0);
