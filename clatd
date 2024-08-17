@@ -374,6 +374,9 @@ sub get_plat_prefix {
   }
   if(@prefixes) {
     return $prefixes[0];
+  } elsif($CFG{"plat-fallback-prefix"}) {
+    p("No PLAT prefix could be discovered, using fallback");
+    return $CFG{"plat-fallback-prefix"};
   } else {
     p("No PLAT prefix could be discovered. Your ISP probably doesn't provide",
       " NAT64/DNS64 PLAT service. Exiting.");
@@ -735,7 +738,6 @@ p("Starting clatd v$VERSION by Tore Anderson <tore\@fud.no>");
 # Step 1: Fill in any essential blanks in the configuration by auto-detecting
 # any missing values.
 $CFG{"plat-prefix"} ||= get_plat_prefix();
-$CFG{"plat-prefix"} ||= $CFG{"plat-fallback-prefix"};
 if(!$CFG{"plat-prefix"}) {
   w("No PLAT prefix was discovered or specified; 464XLAT cannot work.");
   exit 0;
