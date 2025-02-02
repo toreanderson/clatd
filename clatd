@@ -41,10 +41,8 @@ $CFG{"clat-v4-addr"} = "192.0.0.1";	# from RFC 7335
 $CFG{"clat-v6-addr"} = undef;		# derive from existing SLAAC addr
 $CFG{"dns64-servers"} = undef;		# use system resolver by default
 $CFG{"cmd-ip"} = "ip";			# assume in $PATH
-$CFG{"cmd-ip6tables"} = "ip6tables";	# assume in $PATH
 $CFG{"cmd-tayga"} = "tayga";		# assume in $PATH
 $CFG{"forwarding-enable"} = 1;		# enable ipv6 forwarding?
-$CFG{"ip6tables-enable"} = undef;	# allow clat<->plat traffic?
 $CFG{"plat-dev"} = undef;		# PLAT-facing device, default detect
 $CFG{"plat-prefix"} = undef;		# detect using DNS64 by default
 $CFG{"plat-fallback-prefix"} = undef;	# fallback prefix if no prefix is found
@@ -387,8 +385,8 @@ sub get_plat_prefix {
 
 #
 # This function figures out which network interface on the system faces the
-# PLAT/NAT64. We need this when generating an IPv6 address for the CLAT, when
-# installing Proxy-ND entries, and when setting up ip6tables rules.
+# PLAT/NAT64. We need this when generating an IPv6 address for the CLAT and
+# when installing Proxy-ND entries.
 #
 sub get_plat_dev {
   d("get_plat_dev(): finding which network dev faces the PLAT");
@@ -596,7 +594,6 @@ my $cleanup_zero_forwarding_sysctl;	# zero forwarding sysctl if set
 my @cleanup_accept_ra_sysctls;		# accept_ra sysctls to be reset to '1'
 my $cleanup_zero_proxynd_sysctl;	# zero proxy_ndp sysctl if set
 my $cleanup_remove_proxynd_entry,	# true if having added proxynd entry
-my $cleanup_remove_ip6tables_rules;	# true if having added ip6tables rules
 my @cleanup_restore_v4_defaultroutes;   # temporarily replaced defaultroutes
 
 sub cleanup_and_exit {
@@ -636,14 +633,6 @@ sub cleanup_and_exit {
       cfg("plat-dev"));
     cmd(\&w, cfg("cmd-ip"), qw(-6 neighbour delete proxy), cfg("clat-v6-addr"),
         "dev", cfg("plat-dev"));
-  }
-  if(defined($cleanup_remove_ip6tables_rules)) {
-    d("Cleanup: Removing ip6tables rules allowing traffic between the CLAT ",
-      "and PLAT devices");
-    cmd(\&w, cfg("cmd-ip6tables"), qw(-D FORWARD -i), cfg("clat-dev"),
-        "-o", cfg("plat-dev"), qw(-j ACCEPT));
-    cmd(\&w, cfg("cmd-ip6tables"), qw(-D FORWARD -i), cfg("plat-dev"),
-        "-o", cfg("clat-dev"), qw(-j ACCEPT));
   }
   for my $rt (@cleanup_restore_v4_defaultroutes) {
     d("Cleanup: Restoring temporarily replaced IPv4 default route");
@@ -763,9 +752,6 @@ p("Device facing the PLAT: ", $CFG{"plat-dev"});
 $CFG{"clat-v6-addr"} ||= get_clat_v6_addr();
 p("Using CLAT IPv4 address: ", $CFG{"clat-v4-addr"});
 p("Using CLAT IPv6 address: ", $CFG{"clat-v6-addr"});
-if(!defined($CFG{"ip6tables-enable"})) {
-  $CFG{"ip6tables-enable"} = -e "/sys/module/ip6table_filter" ? 1 : 0;
-}
 if(!$CFG{"v4-defaultroute-advmss"} and cfgint("v4-defaultroute-mtu")) {
   $CFG{"v4-defaultroute-advmss"} = $CFG{"v4-defaultroute-mtu"} - 40;
 }
@@ -848,19 +834,6 @@ if(cfgbool("forwarding-enable")) {
     sysctl("net/ipv6/conf/all/forwarding", 1);
     $cleanup_zero_forwarding_sysctl = 0;
   }
-}
-
-#
-# Add ip6tables rules permitting traffic between the PLAT and the CLAT
-#
-if(cfgbool("ip6tables-enable")) {
-  p("Adding ip6tables rules allowing traffic between the CLAT ",
-    "and PLAT devices");
-  cmd(\&w, cfg("cmd-ip6tables"), qw(-I FORWARD -i), cfg("clat-dev"),
-      "-o", cfg("plat-dev"), qw(-j ACCEPT));
-  cmd(\&w, cfg("cmd-ip6tables"), qw(-I FORWARD -i), cfg("plat-dev"),
-      "-o", cfg("clat-dev"), qw(-j ACCEPT));
-  $cleanup_remove_ip6tables_rules = 1;
 }
 
 #

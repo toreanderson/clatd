@@ -232,12 +232,6 @@ encountered will be used.
 Path to the B<ip> binary from the iproute2 package available at
 L<https://www.kernel.org/pub/linux/utils/net/iproute2>. Required.
 
-=item B<cmd-ip6tables=path> (default: assume in $PATH)
-
-Path to the B<ip6tables> binary from the netfilter package available at
-L<http://netfilter.org>. Only required for adding ip6tables rules
-(see the B<ip6tables-enable> configuration setting).
-
 =item B<cmd-tayga=path> (default: assume in $PATH)
 
 Path to the B<tayga> binary from the TAYGA package available at
@@ -254,22 +248,11 @@ forwarding.
 All sysctls that are modified will be restored to their original values when
 B<clatd> is shutting down.
 
-=item B<ip6tables-enable=bool> (default: see below)
-
-Controls whether or not B<clatd> should insert ip6tables rules that permit the
-forwarding of IPv6 traffic between the CLAT and PLAT devices. Such forwarding
-must be permitted for B<clatd> to work correctly. Any rules added will be
-removed when B<clatd> is shutting down.
-
-The default is I<yes> if the ip6tables_filter kernel module is loaded, I<no>
-if it is not.
-
 =item B<plat-dev> (default: auto-detect)
 
 Which network device is facing the PLAT (NAT64). By default, this is
-auto-detected by performing a route table lookup towards the PLAT prefix.
-This setting is used when setting up generating the CLAT IPv6 address, and
-when setting up ip6tables rules and Proxy-ND entries.
+auto-detected by performing a route table lookup towards the PLAT prefix. This
+setting is used when generating the CLAT IPv6 address and Proxy-ND entries.
 
 =item B<plat-prefix> (default: auto-detect)
 
@@ -441,7 +424,7 @@ SOFTWARE.
 
 =head1 SEE ALSO
 
-ip(8), ip6tables(8), tayga(8), tayga.conf(5)
+ip(8), tayga(8), tayga.conf(5)
 
 RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335 RFC 7755, RFC 7756,
 RFC 7757
