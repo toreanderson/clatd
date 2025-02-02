@@ -382,12 +382,22 @@ unset or 0, there is no default.
 
 =head1 LIMITATIONS
 
-B<clatd> will not be able to acquire an IPv6 address for the CLAT if SLAAC
-isn't used. I<RFC 6877> suggests DHCPv6 IA_PD should be attempted in this
-case, but this isn't currently implemented.
+If no IPv6 addresses on the PLAT-facing device are EUI-64-derived (e.g., when
+using SLAAC with I<RFC 4941> or I<RFC 7217> privacy addressing or static
+addresses), B<clatd> will generate and use an CLAT IPv6 address using a random
+Interface ID from the same subnet prefix (if it is /120 or shorter).
+I<RFC 6877> suggests DHCPv6 IA_PD should be attempted in this case instead, but
+this isn't currently implemented.
 
 B<clatd> will not attempt to perform Duplicate Address Detection for the IPv6
 address it generates. This is a violation of I<RFC 6877>.
+
+There is no guarantee that the generated CLAT IPv6 address is in fact usable,
+as the network might block its use.
+
+If the upstream network is using DHCPv6, B<clatd> will not be able to generate
+a CLAT IPv6 address at all, due to the fact that DHCPv6-assigned addresses do
+not carry a prefix length.
 
 B<clatd> will not attempt to perform a connectivity check to a discovered PLAT
 prefix before setting up the CLAT, as I<RFC 7050> suggest it should.
