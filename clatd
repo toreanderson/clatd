@@ -1,6 +1,6 @@
 #! /usr/bin/perl -w
 #
-# Copyright (c) 2014-2023 Tore Anderson <tore@fud.no>
+# Copyright (c) 2014-2025 Tore Anderson <tore@fud.no>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,7 @@ use strict;
 use IPC::Cmd qw(can_run);
 use Net::IP;
 
-my $VERSION = "1.6nat46";
+my $VERSION = "2.0.0";
 
 #
 # Populate the global config hash with the default values
