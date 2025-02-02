@@ -38,17 +38,17 @@ $CFG{"script-up"} = undef;		# sh script to run when starting up
 $CFG{"script-down"} = undef;		# sh script to run when shutting down
 $CFG{"clat-dev"} = "clat";		# TUN interface name to use
 $CFG{"clat-v4-addr"} = "192.0.0.1";	# from RFC 7335
-$CFG{"clat-v6-addr"} = undef;		# derive from existing SLAAC addr
+$CFG{"clat-v6-addr"} = "shared";	# re-use primary address from host OS
 $CFG{"dns64-servers"} = undef;		# use system resolver by default
 $CFG{"cmd-ip"} = "ip";			# assume in $PATH
 $CFG{"cmd-nft"} = "nft";		# assume in $PATH
 $CFG{"cmd-tayga"} = "tayga";		# assume in $PATH
-$CFG{"ctmark"} = 0;			# match ctmark for routing pkts to CLAT
+$CFG{"ctmark"} = undef;			# match ctmark for routing pkts to CLAT
 $CFG{"forwarding-enable"} = 1;		# enable ipv6 forwarding?
 $CFG{"plat-dev"} = undef;		# PLAT-facing device, default detect
 $CFG{"plat-prefix"} = undef;		# detect using DNS64 by default
 $CFG{"plat-fallback-prefix"} = undef;	# fallback prefix if no prefix is found
-$CFG{"proxynd-enable"} = 1;		# add proxy-nd entry for clat?
+$CFG{"proxynd-enable"} = undef;		# add proxy-nd entry for clat?
 $CFG{"route-table"} = 0xc1a7;		# add route to CLAT in this table
 $CFG{"tayga-conffile"} = undef;		# make a temporary one by default
 $CFG{"tayga-v4-addr"} = "192.0.0.2";	# from RFC 7335
@@ -394,6 +394,7 @@ sub get_plat_prefix {
 sub get_plat_dev {
   d("get_plat_dev(): finding which network dev faces the PLAT");
   my $plat_dev;
+  my $plat_dev_srcip;
   my $plat_prefix = cfg("plat-prefix");
   if(!$plat_prefix) {
     err("get_plat_dev(): No PLAT prefix to work with");
@@ -406,9 +407,13 @@ sub get_plat_dev {
       d("get_plat_dev(): Found PLAT-facing device: $1");
       $plat_dev = $1;
     }
+    if(/ src (\S+) /) {
+      d("get_plat_dev(): Found PLAT-facing device source IP: $1");
+      $plat_dev_srcip = $1;
+    }
   }
   close($fd) or err("get_plat_dev(): 'ip -6 route get $plat_prefix' failed");
-  return $plat_dev;
+  return ($plat_dev, $plat_dev_srcip);
 }
 
 
@@ -766,9 +771,34 @@ if(!$CFG{"plat-prefix"}) {
   }
   p("Using PLAT (NAT64) prefix: $CFG{'plat-prefix'}");
 }
-$CFG{"plat-dev"} ||= get_plat_dev();
+my @plat_dev = get_plat_dev();
+$CFG{"plat-dev"} ||= $plat_dev[0];
 p("Device facing the PLAT: ", $CFG{"plat-dev"});
-$CFG{"clat-v6-addr"} ||= get_clat_v6_addr();
+
+if($CFG{"clat-v6-addr"} eq "shared") {
+  if(!$plat_dev[1]) {
+    err("Could not determine source IP facing the PLAT, needed due to using ",
+        "clat-v6-addr=shared");
+  }
+  $CFG{"clat-v6-addr"} = $plat_dev[1];
+  if(!defined($CFG{"proxynd-enable"})) {
+    $CFG{"proxynd-enable"} = 0;
+  }
+  if(!defined($CFG{"ctmark"})) {
+    $CFG{"ctmark"} = 0xc1a7;
+  }
+} elsif($CFG{"clat-v6-addr"} eq "derived") {
+  $CFG{"clat-v6-addr"} = get_clat_v6_addr();
+}
+
+# Fill defaults for proxynd-enable and ctmark for clat-v6-addr!=shared
+if(!defined($CFG{"proxynd-enable"})) {
+  $CFG{"proxynd-enable"} = 1;
+}
+if(!defined($CFG{"ctmark"})) {
+  $CFG{"ctmark"} = 0;
+}
+
 p("Using CLAT IPv4 address: ", $CFG{"clat-v4-addr"});
 p("Using CLAT IPv6 address: ", $CFG{"clat-v6-addr"});
 if(!$CFG{"v4-defaultroute-advmss"} and cfgint("v4-defaultroute-mtu")) {

@@ -193,32 +193,41 @@ functional references to it in application-level payload, and so on.
 
 The default address is one from I<RFC 7335>.
 
-=item B<clat-v6-addr=ipv6-address> (default: auto-generated)
+=item B<clat-v6-addr=[ipv6-address|shared|derived> (default: I<shared>)
 
 The IPv6 address of the CLAT. Traffic to/from the B<clat-v4-addr> will be
 translated into this address. When using B<clatd> as an SIIT-DC Edge Relay, you
 will want to set this to the same IPv6 address in the Explicit Address Mapping
 configured in the SIIT-DC Border Relay.
 
-By default, B<clatd> will attempt to figure out which network device will be
-used for traffic towards the PLAT, see if there is any SLAAC-based globally
-scoped addresses on it (i.e., a /64 with '0xfffe' in the middle of the
-Interface ID), and will if so substitute that '0xfffe' value with '0xc1a7'
-("clat") to generate a CLAT IPv6 address.
+When set to I<shared> (the default), B<clatd> will re-use and share the primary
+IPv6 address used by the host OS when communicating with directly with the PLAT
+prefix. This allows B<clatd> to operate without requiring a separate, dedicated
+IPv6 address assigned to the CLAT function. While this mode is the most
+compatible with various network deployments, it comes with certain trade-offs,
+see the B<LIMITATIONS> section for more information.
 
-If only a non-SLAAC global address is found on the PLAT-facing device,
-B<clatd> will substitute its Interface ID with a random integer and use the
-result as the CLAT IPv6 address. It will only do so if the prefix length is
-/120 or smaller, as otherwise the risk of IID collisions is considered to be
-too high. Note that on most Perl platforms, the I<rand()> function is limited
-to 48 bits, which means that for longer IIDs, the least significant bits will
-be all 0.
+When set to I<derived>, B<clatd> will attempt to figure out which network
+device will be used for traffic towards the PLAT, see if there is any
+SLAAC-based globally scoped addresses on it (i.e., a /64 with '0xfffe' in the
+middle of the Interface ID), and will if so substitute that '0xfffe' value with
+'0xc1a7' ("clat") to generate a CLAT IPv6 address.
+
+If only a non-SLAAC global address is found on the PLAT-facing device, B<clatd>
+will substitute its Interface ID with a random integer and use the result as
+the CLAT IPv6 address. It will only do so if the prefix length is /120 or
+smaller, as otherwise the risk of IID collisions is considered to be too high.
+Note that on most Perl platforms, the I<rand()> function is limited to 48 bits,
+which means that for longer IIDs, the least significant bits will be all 0.
+
+The I<derived> mode is not guaranteed to result in a working configuration, see
+the B<LIMITATIONS> section for more information.
 
 If multiple addresses are found in either category, the one that shares the
 longest common prefix with the PLAT prefix will be preferred when deriving
 the CLAT IPv6 address according to the algorithm described above.
 
-=item B<ctmark> (default: 0)
+=item B<ctmark> (default: I<0xc1a7> if I<clat-v6-addr=shared>, otherwise I<0>)
 
 If set to a non-zero integer, nftables will be used to mark outgoing
 connections through the CLAT with this connection tracking mark, and the Linux
@@ -282,7 +291,7 @@ DNS64 answers using the method in I<RFC 7050>.
 The IPv6 translation prefix fallback. This is used if no plat-prefix is set
 or auto detected.
 
-=item B<proxynd-enable> (default: I<yes>)
+=item B<proxynd-enable> (default: I<no> if I<clat-v6-addr=shared>, otherwise I<yes>)
 
 Controls whether or not B<clatd> should add a Proxy-ND entry for the CLAT IPv6
 address on the network device facing the PLAT. This is probably necessary
@@ -291,6 +300,10 @@ send packets to the CLAT's IPv6 address), but likely not necessary on
 point-to-point links like PPP or 3GPP mobile broadband, as in those cases
 IPv6 ND isn't used. However it doesn't hurt to add Proxy-ND entries in that
 case, either.
+
+If the CLAT is sharing an IPv6 address with the host OS, this is not necessary
+as the host OS will be handling NDP anyway, so Proxy-ND does get enabled by
+default when I<clat-v6-addr> is set to its default value I<shared>.
 
 Any entries added wil be removed when B<clatd> is shutting down.
 
@@ -406,15 +419,25 @@ unset or 0, there is no default.
 
 =head1 LIMITATIONS
 
-If no IPv6 addresses on the PLAT-facing device are EUI-64-derived (e.g., when
-using SLAAC with I<RFC 4941> or I<RFC 7217> privacy addressing or static
-addresses), B<clatd> will generate and use an CLAT IPv6 address using a random
-Interface ID from the same subnet prefix (if it is /120 or shorter).
-I<RFC 6877> suggests DHCPv6 IA_PD should be attempted in this case instead, but
-this isn't currently implemented.
+When using B<clat-v6-addr=shared> (or when B<clat-v6-addr> is set to another
+address assigned to a local interface) and B<ctmark> is set to 0, the host OS
+will not be able to communicate bi-directionally with IPv4 destinations
+directly through the PLAT (e.g., I<ping6 64:ff9b::192.0.2.1>). This is because
+the response traffic will be routed back to the CLAT, and ultimately return to
+the Linux kernel as an IPv4 packet, which does not match the outgoing IPv6
+socket. Such direct communication is normal when using DNS64 synthesis for all
+queries (as opposed to just I<ipv4only.arpa>).
+
+When using B<clat-v6-addr=derived> and no IPv6 addresses on the PLAT-facing
+device are EUI-64-derived (e.g., when using SLAAC with I<RFC 4941> or I<RFC
+7217> privacy addressing or static addresses), B<clatd> will generate and use
+an CLAT IPv6 address using a random Interface ID from the same subnet prefix
+(if it is /120 or shorter).  I<RFC 6877> suggests DHCPv6 IA_PD should be
+attempted in this case instead, but this isn't currently implemented.
 
 B<clatd> will not attempt to perform Duplicate Address Detection for the IPv6
-address it generates. This is a violation of I<RFC 6877>.
+address it generates when using B<clat-v6-addr=derived>. This is a violation of
+I<RFC 6877>.
 
 There is no guarantee that the generated CLAT IPv6 address is in fact usable,
 as the network might block its use.
@@ -422,15 +445,6 @@ as the network might block its use.
 If the upstream network is using DHCPv6, B<clatd> will not be able to generate
 a CLAT IPv6 address at all, due to the fact that DHCPv6-assigned addresses do
 not carry a prefix length.
-
-If B<clat-v6-addr> is set to an address assigned to a local interface and
-B<ctmark> is not set, the host OS will not be able to communicate
-bi-directionally with IPv4 destinations directly through the PLAT (e.g.,
-I<ping6 64:ff9b::192.0.2.1>). This is because the response traffic will be
-routed back to the CLAT, and ultimately return to the Linux kernel as an IPv4
-packet, which does not match the outgoing IPv6 socket. Such direct
-communication is normal when using DNS64 synthesis for all queries (as opposed
-to just I<ipv4only.arpa>).
 
 B<clatd> will not attempt to perform a connectivity check to a discovered PLAT
 prefix before setting up the CLAT, as I<RFC 7050> suggest it should.
