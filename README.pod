@@ -262,6 +262,18 @@ L<https://nftables.org/projects/nftables/>. Required if I<ctmark> is set.
 Path to the B<tayga> binary from the TAYGA package available at
 L<http://www.litech.org/tayga>. Required.
 
+=item B<cmd-ufw=path> (default: assume in $PATH)
+
+Path to the B<ufw> binary from the UFW local firewall framework available at
+L<https://launchpad.net/ufw> commonly seen on Debian-based distributions. If
+this command is present on the system, and B<ufw status> reports that the
+firewall is active, B<clatd> will add firewall rules ensuring traffic between
+the CLAT and the PLAT prefix is allowed when it is starting up, and remove them
+when it is shutting down.
+
+If you don't want B<clatd> to add and remove UFW firewall rules, set this to an
+empty string.
+
 =item B<forwarding-enable=bool> (default: I<yes>)
 
 Controls whether or not B<clatd> should enable IPv6 forwarding if necessary.

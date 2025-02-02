@@ -24,6 +24,7 @@
 # clatd(8) for more information.
 #
 use strict;
+use IPC::Cmd qw(can_run);
 use Net::IP;
 
 my $VERSION = "1.6nat46";
@@ -43,6 +44,7 @@ $CFG{"dns64-servers"} = undef;		# use system resolver by default
 $CFG{"cmd-ip"} = "ip";			# assume in $PATH
 $CFG{"cmd-nft"} = "nft";		# assume in $PATH
 $CFG{"cmd-tayga"} = "tayga";		# assume in $PATH
+$CFG{"cmd-ufw"} = "ufw";		# assume in $PATH
 $CFG{"ctmark"} = undef;			# match ctmark for routing pkts to CLAT
 $CFG{"forwarding-enable"} = 1;		# enable ipv6 forwarding?
 $CFG{"plat-dev"} = undef;		# PLAT-facing device, default detect
@@ -604,6 +606,7 @@ my $cleanup_zero_proxynd_sysctl;	# zero proxy_ndp sysctl if set
 my $cleanup_remove_proxynd_entry,	# true if having added proxynd entry
 my $cleanup_remove_nftable;		# true if having added an nftable
 my $cleanup_remove_clat_iprule;		# true if having added clat iprule
+my $cleanup_remove_ufw_rules;		# true if having added ufw rules
 my $cleanup_restore_local_iprule_prio;	# true if having reordered local iprule
 my @cleanup_restore_v4_defaultroutes;	# temporarily replaced defaultroutes
 
@@ -661,6 +664,14 @@ sub cleanup_and_exit {
   if(defined($cleanup_remove_clat_iprule)) {
     d("Cleanup: Removing ip rule for redirecting inbound traffic to CLAT");
     cmd(\&w, cfg("cmd-ip"), qw(-6 rule del prio 0 table), cfg("route-table"));
+  }
+  if(defined($cleanup_remove_ufw_rules)) {
+    cmd(\&w, cfg("cmd-ufw"), qw(route delete allow in on), cfg("clat-dev"),
+        "from", cfg("clat-v6-addr"), qw(out on), cfg("plat-dev"), "to",
+        cfg("plat-prefix"));
+    cmd(\&w, cfg("cmd-ufw"), qw(route delete allow in on), cfg("plat-dev"),
+        "from", cfg("plat-prefix"), qw(out on), cfg("clat-dev"), "to",
+        cfg("clat-v6-addr"));
   }
 
   exit($exitcode);
@@ -883,6 +894,30 @@ if(cfgbool("forwarding-enable")) {
     sysctl("net/ipv6/conf/all/forwarding", 1);
     $cleanup_zero_forwarding_sysctl = 0;
   }
+}
+
+#
+# Add firewall rules to allow PLAT-CLAT traffic if a supported local firewall
+# framework is present and active
+#
+if(can_run(cfg("cmd-ufw"))) {
+  open(my $fd, '-|', cfg("cmd-ufw"), "status")
+    or err("'ufw status' failed to execute");
+  while(<$fd>) {
+    if(/^Status: active$/) {
+      p("UFW local firewall framework active, allowing CLAT-PLAT traffic");
+      cmd(\&err, cfg("cmd-ufw"), qw(route allow in on), cfg("clat-dev"),
+          "from", cfg("clat-v6-addr"), qw(out on), cfg("plat-dev"), "to",
+          cfg("plat-prefix"));
+      cmd(\&err, cfg("cmd-ufw"), qw(route allow in on), cfg("plat-dev"),
+          "from", cfg("plat-prefix"), qw(out on), cfg("clat-dev"), "to",
+          cfg("clat-v6-addr"));
+      $cleanup_remove_ufw_rules = 1;
+    }
+  }
+  close($fd) or err("'ufw status' failed");
+} else {
+  d("UFW command '", cfg("cmd-ufw"), "' not found, not installing UFW rules");
 }
 
 #
