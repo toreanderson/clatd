@@ -218,6 +218,17 @@ If multiple addresses are found in either category, the one that shares the
 longest common prefix with the PLAT prefix will be preferred when deriving
 the CLAT IPv6 address according to the algorithm described above.
 
+=item B<ctmark> (default: 0)
+
+If set to a non-zero integer, nftables will be used to mark outgoing
+connections through the CLAT with this connection tracking mark, and the Linux
+kernel routing policy is set up so that only response traffic from the PLAT
+that matches this connection tracking mark is routed back to the CLAT.
+
+This means that connections initiated from the external IPv4 network via the
+PLAT will not reach the CLAT, therefore the use of this feature is incompatible
+with using B<clatd> as a SIIT-DC Edge Relay (I<RFC 7756>).
+
 =item B<dns64-servers=srv1,[srv2,..]> (default: use system resolver)
 
 Comma-separated list of DNS64 servers to use when discovering the PLAT prefix
@@ -231,6 +242,11 @@ encountered will be used.
 
 Path to the B<ip> binary from the iproute2 package available at
 L<https://www.kernel.org/pub/linux/utils/net/iproute2>. Required.
+
+=item B<cmd-nft=path> (default: assume in $PATH)
+
+Path to the B<nft> binary from the nftables package available at
+L<https://nftables.org/projects/nftables/>. Required if I<ctmark> is set.
 
 =item B<cmd-tayga=path> (default: assume in $PATH)
 
@@ -252,7 +268,8 @@ B<clatd> is shutting down.
 
 Which network device is facing the PLAT (NAT64). By default, this is
 auto-detected by performing a route table lookup towards the PLAT prefix. This
-setting is used when generating the CLAT IPv6 address and Proxy-ND entries.
+setting is used when generating the CLAT IPv6 address, adding Proxy-ND entries,
+and nftables rules.
 
 =item B<plat-prefix> (default: auto-detect)
 
@@ -276,6 +293,13 @@ IPv6 ND isn't used. However it doesn't hurt to add Proxy-ND entries in that
 case, either.
 
 Any entries added wil be removed when B<clatd> is shutting down.
+
+=item B<route-table> (default: I<0xc1a7>)
+
+The Linux kernel routing table used to hold the route that directs IPv6 packets
+from the PLAT to the CLAT. B<clatd> will add a custom routing policy entry
+(using B<ip -6 rule add>) so that this routing table is used instead of the
+default one.
 
 =item B<tayga-conffile> (default: use a temporary file)
 
@@ -399,6 +423,15 @@ If the upstream network is using DHCPv6, B<clatd> will not be able to generate
 a CLAT IPv6 address at all, due to the fact that DHCPv6-assigned addresses do
 not carry a prefix length.
 
+If B<clat-v6-addr> is set to an address assigned to a local interface and
+B<ctmark> is not set, the host OS will not be able to communicate
+bi-directionally with IPv4 destinations directly through the PLAT (e.g.,
+I<ping6 64:ff9b::192.0.2.1>). This is because the response traffic will be
+routed back to the CLAT, and ultimately return to the Linux kernel as an IPv4
+packet, which does not match the outgoing IPv6 socket. Such direct
+communication is normal when using DNS64 synthesis for all queries (as opposed
+to just I<ipv4only.arpa>).
+
 B<clatd> will not attempt to perform a connectivity check to a discovered PLAT
 prefix before setting up the CLAT, as I<RFC 7050> suggest it should.
 
@@ -434,7 +467,7 @@ SOFTWARE.
 
 =head1 SEE ALSO
 
-ip(8), tayga(8), tayga.conf(5)
+ip(8), nft(8), tayga(8), tayga.conf(5)
 
 RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335 RFC 7755, RFC 7756,
 RFC 7757
