@@ -4,7 +4,6 @@ SYSCONFDIR=/etc
 
 APT_GET:=$(shell which apt-get)
 DNF_OR_YUM:=$(shell which dnf || which yum)
-INITCTL:=$(shell which initctl)
 SYSTEMCTL:=$(shell which systemctl)
 TAYGA:=$(shell which tayga)
 
@@ -16,8 +15,6 @@ install:
 	# Install systemd service file if applicable for this system
 	if test -x "$(SYSTEMCTL)" && test -d "$(DESTDIR)$(SYSCONFDIR)/systemd/system"; then install -m0644 scripts/clatd.systemd $(DESTDIR)$(SYSCONFDIR)/systemd/system/clatd.service && $(SYSTEMCTL) daemon-reload; fi
 	if test -e "$(DESTDIR)$(SYSCONFDIR)/systemd/system/clatd.service" && test ! -e "$(DESTDIR)$(SYSCONFDIR)/systemd/system/multi-user.target.wants/clatd.service"; then $(SYSTEMCTL) enable clatd.service; fi
-	# Install upstart service file if applicable for this system
-	if test -x "$(INITCTL)" && test -d "$(DESTDIR)$(SYSCONFDIR)/init"; then install -m0644 scripts/clatd.upstart $(DESTDIR)$(SYSCONFDIR)/init/clatd.conf; fi
 	# Install NetworkManager dispatcher script if applicable
 	if test -d $(DESTDIR)$(SYSCONFDIR)/NetworkManager/dispatcher.d; then install -m0755 scripts/clatd.networkmanager $(DESTDIR)$(SYSCONFDIR)/NetworkManager/dispatcher.d/50-clatd; fi
 

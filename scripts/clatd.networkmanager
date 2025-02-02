@@ -29,8 +29,3 @@
 if which systemctl &> /dev/null; then
   systemctl --no-block restart clatd.service
 fi
-
-# upstart-based distros
-if test -x /sbin/initctl; then
-  /sbin/initctl restart clatd
-fi

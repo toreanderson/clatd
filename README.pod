@@ -64,7 +64,7 @@ configuration file. Refer to the section B<CONFIGURATION> below for more info.
 =head1 INVOCATION
 
 B<clatd> is meant to be run under a daemonising control process such as
-systemd, upstart, or similar. It is further meant to be (re)started whenever a
+systemd or similar. It is further meant to be (re)started whenever a
 network interface goes up/down as this might mean a change in the PLAT
 availability or which prefixes/addresses needs to be used for the CLAT to work.
 It may also be run directly from the command line. It will run until killed
@@ -87,7 +87,7 @@ of B<clatd> and its dependencies:
 
 =back
 
-This will install B<clatd> to /usr/sbin, plus install systemd, upstart, and/or
+This will install B<clatd> to /usr/sbin, plus install systemd, and/or
 NetworkManager scripts if your distribution appears to be using them, and
 install all the dependencies. Note that TAYGA isn't available in all RPM-based
 distros (in particular RHEL and its clones). It is however available in EPEL
