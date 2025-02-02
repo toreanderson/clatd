@@ -34,8 +34,8 @@ my $VERSION = "1.6nat46";
 my %CFG;
 $CFG{"quiet"} = 0;			# suppress normal output
 $CFG{"debug"} = 0;			# debugging output level
-$CFG{"script-up"} = undef;              # sh script to run when starting up
-$CFG{"script-down"} = undef;            # sh script to run when shutting down
+$CFG{"script-up"} = undef;		# sh script to run when starting up
+$CFG{"script-down"} = undef;		# sh script to run when shutting down
 $CFG{"clat-dev"} = "clat";		# TUN interface name to use
 $CFG{"clat-v4-addr"} = "192.0.0.1";	# from RFC 7335
 $CFG{"clat-v6-addr"} = undef;		# derive from existing SLAAC addr
@@ -600,7 +600,7 @@ my $cleanup_remove_proxynd_entry,	# true if having added proxynd entry
 my $cleanup_remove_nftable;		# true if having added an nftable
 my $cleanup_remove_clat_iprule;		# true if having added clat iprule
 my $cleanup_restore_local_iprule_prio;	# true if having reordered local iprule
-my @cleanup_restore_v4_defaultroutes;   # temporarily replaced defaultroutes
+my @cleanup_restore_v4_defaultroutes;	# temporarily replaced defaultroutes
 
 sub cleanup_and_exit {
   my $exitcode = shift;
