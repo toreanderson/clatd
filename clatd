@@ -332,7 +332,6 @@ sub find_rfc7050_wka {
 sub get_plat_prefix {
   p("Performing DNS64-based PLAT prefix discovery (cf. RFC 7050)");
 
-  require IO::Socket::IP; # needed by Net::DNS for querying IPv6 servers
   require Net::DNS;
 
   my @dns64_servers = split(",", cfg("dns64-servers") || "");
@@ -349,6 +348,16 @@ sub get_plat_prefix {
       $res = Net::DNS::Resolver->new();
     }
     $res->dnssec(0); # RFC 7050 section 3
+
+    # Force use of AF_INET6 socket with IPv4-mapped addresses when querying
+    # an IPv4 name server (e.g., systemd-resolved listening on 127.0.0.53).
+    # This works around https://rt.cpan.org/Public/Bug/Display.html?id=158714
+    # (and/or https://rt.cpan.org/Public/Bug/Display.html?id=132760).
+    $res->nameservers(map {
+      Net::IP->new($_)->version() == 4 ? "::ffff:$_" : $_;
+    } $res->nameservers);
+    d2("Nameservers after Net::DNS bug workaround: ", $res->nameservers);
+
     my $pkt = $res->query('ipv4only.arpa', 'AAAA');
     if(!$pkt) {
       d("No AAAA records was returned for 'ipv4only.arpa'");
