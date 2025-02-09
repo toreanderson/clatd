@@ -11,6 +11,7 @@
 [Unit]
 Description=464XLAT CLAT daemon
 Documentation=man:clatd(8)
+Wants=network-online.target
 After=network-online.target
 After=nss-lookup.target
 StartLimitIntervalSec=0
