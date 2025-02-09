@@ -635,7 +635,7 @@ sub cleanup_and_exit {
     sysctl("net/ipv6/conf/" . cfg("plat-dev") . "/proxy_ndp", 0);
   }
   if(defined($cleanup_remove_proxynd_entry)) {
-    d("Cleanup: Removing Proxy-ND entry for ", cfg("clat-v6-addr"), "on ",
+    d("Cleanup: Removing Proxy-ND entry for ", cfg("clat-v6-addr"), " on ",
       cfg("plat-dev"));
     cmd(\&w, cfg("cmd-ip"), qw(-6 neighbour delete proxy), cfg("clat-v6-addr"),
         "dev", cfg("plat-dev"));
