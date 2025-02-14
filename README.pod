@@ -241,16 +241,31 @@ with using B<clatd> as a SIIT-DC Edge Relay (I<RFC 7756>).
 =item B<dns64-servers=srv1,[srv2,..]> (default: use system resolver)
 
 Comma-separated list of DNS64 servers to use when discovering the PLAT prefix
-using the method described in RFC 7050. By default, the system resolver is
-used, but it might be useful to override this in case your ISP doesn't provide
-you with a DNS64-enabled name server, and you want to test B<clatd> using any of
-the public DNS64/NAT64 instances on the internet. The first PLAT prefix
-encountered will be used.
+using the method described in I<RFC 7050>. By default, B<clatd> will first try
+to determine if systemd-networkd is aware of a PLAT prefix (learned from the
+PREF64 Router Advertisement option, cf. I<RFC 8781>), falling back on using
+DNS64 discovery towards the system resolver if it isn't.
+
+It might be useful to override this in case your network does not advertise the
+PREF64 RA option, your ISP doesn't provide you with a DNS64-enabled name
+server, and you want to test B<clatd> using any of the public DNS64/NAT64
+instances on the internet. The first PLAT prefix encountered will be used.
 
 =item B<cmd-ip=path> (default: assume in $PATH)
 
 Path to the B<ip> binary from the iproute2 package available at
 L<https://www.kernel.org/pub/linux/utils/net/iproute2>. Required.
+
+=item B<cmd-networkctl=path> (default: assume in $PATH)
+
+Path to the B<networkctl> binary from systemd-networkd. Required in order to
+use any PLAT prefix discovered by systemd-networkd from the PREF64 Router
+Advertisement option (see I<RFC 8781> and the I<UsePREF64> option in
+I<systemd.network(5)> for more information). The first prefix returned is used,
+any others are ignored.
+
+To prevent PLAT prefix discovery via systemd-networkd from being attempted, set
+this to an empty string.
 
 =item B<cmd-nft=path> (default: assume in $PATH)
 
@@ -493,9 +508,9 @@ SOFTWARE.
 
 =head1 SEE ALSO
 
-ip(8), nft(8), tayga(8), tayga.conf(5)
+ip(8), nft(8), systemd.network(5), tayga(8), tayga.conf(5)
 
 RFC 6052, RFC 6145, RFC 6146, RFC 6877, RFC 7050, RFC 7335 RFC 7755, RFC 7756,
-RFC 7757
+RFC 7757, RFC 8781
 
 =cut

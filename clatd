@@ -42,6 +42,7 @@ $CFG{"clat-v4-addr"} = "192.0.0.1";	# from RFC 7335
 $CFG{"clat-v6-addr"} = "shared";	# re-use primary address from host OS
 $CFG{"dns64-servers"} = undef;		# use system resolver by default
 $CFG{"cmd-ip"} = "ip";			# assume in $PATH
+$CFG{"cmd-networkctl"} = "networkctl";	# assume in $PATH
 $CFG{"cmd-nft"} = "nft";		# assume in $PATH
 $CFG{"cmd-tayga"} = "tayga";		# assume in $PATH
 $CFG{"cmd-ufw"} = "ufw";		# assume in $PATH
@@ -329,7 +330,7 @@ sub find_rfc7050_wka {
 # up to see if the well-known hostname 'ipv4only.arpa' resolves to an IPv6
 # address, if so there is a high chance of DNS64 being used.
 #
-sub get_plat_prefix {
+sub get_plat_prefix_from_dns64 {
   p("Performing DNS64-based PLAT prefix discovery (cf. RFC 7050)");
 
   require Net::DNS;
@@ -393,6 +394,62 @@ sub get_plat_prefix {
     p("No PLAT prefix could be discovered. Your ISP probably doesn't provide",
       " NAT64/DNS64 PLAT service. Exiting.");
     cleanup_and_exit(0);
+  }
+}
+
+
+#
+# This function attempts request a PLAT prefix from systemd-networkd, which
+# systemd-networkd will know about if the Router Advertisements contain the
+# PREF64 option defined in RFC 8781, and systemd-networkd is configured with
+# UsePREF64=true (not the default). The first prefix seen is used, subsequent
+# ones are ignored.
+#
+sub get_plat_prefix_from_networkd {
+  if(!can_run(cfg("cmd-networkctl"))) {
+    d(cfg("cmd-networkctl"), " is not installed or not exectutable, skipping");
+    return;
+  }
+  p("Attempting to query systemd-networkd for PLAT prefix (cf. RFC 8781)");
+  open(my $fd, '-|', cfg("cmd-networkctl"), qw(--json=short status))
+    or err(cfg("cmd-networkctl"), " failed to execute");
+  my @out = <$fd>;
+  if(!close($fd)) {
+    p("'networkctl status' failed, trying DNS64 PLAT prefix discovery");
+    return;
+  }
+
+  require JSON;
+  my $status = JSON::decode_json("@out");
+
+  return unless($status->{"Interfaces"});
+
+  for my $interface (@{$status->{"Interfaces"}}) {
+    next if(!$interface->{"NDisc"}->{"PREF64"});
+
+    d2($interface->{"Name"}, " PREF64 bytes: ",
+       join(" ", @{$interface->{"NDisc"}->{"PREF64"}->[0]->{"Prefix"}}),
+       " / ", $interface->{"NDisc"}->{"PREF64"}->[0]->{"PrefixLength"});
+
+    # PREF64 is an array of bytes, convert to IPv6 string representation
+    my @bytes = @{$interface->{"NDisc"}->{"PREF64"}->[0]->{"Prefix"}};
+    my $ipstr;
+    for (my $i = 0; $i < @bytes;) {
+      $ipstr .= sprintf("%02x%02x", $bytes[$i++], $bytes[$i++]);
+      $ipstr .= ":" if($i < @bytes);
+    }
+    $ipstr .= "/" . $interface->{"NDisc"}->{"PREF64"}->[0]->{"PrefixLength"};
+
+    d2("String representation: $ipstr");
+
+    # Run the result through Net::IP to ensure we have a valid IPv6 string
+    # and also to convert it to compact format.
+    my $ip = Net::IP->new($ipstr, 6)
+      or err("Failed to convert PREF64 bytes array to IPv6 string format");
+
+    my $prefix = $ip->short() . "/" . $ip->prefixlen();
+    d("Obtained PLAT prefix $prefix from systemd-networkd");
+    return $prefix;
   }
 }
 
@@ -770,7 +827,9 @@ p("Starting clatd v$VERSION by Tore Anderson <tore\@fud.no>");
 #
 # Step 1: Fill in any essential blanks in the configuration by auto-detecting
 # any missing values.
-$CFG{"plat-prefix"} ||= get_plat_prefix();
+$CFG{"plat-prefix"} ||= get_plat_prefix_from_networkd()
+  unless($CFG{"dns64-servers"});
+$CFG{"plat-prefix"} ||= get_plat_prefix_from_dns64();
 if(!$CFG{"plat-prefix"}) {
   w("No PLAT prefix was discovered or specified; 464XLAT cannot work.");
   exit 0;
