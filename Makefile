@@ -1,29 +1,59 @@
+# clatd Makefile
+#
+# Copyright (C) 2025 Daniel Gröber <dxld@debian.org>
+#
+# SPDX-License-Identifier: MIT
+
 DESTDIR=
 PREFIX=/usr
 SYSCONFDIR=/etc
+BINDIR = $(PREFIX)/sbin
 
-APT_GET:=$(shell which apt-get)
-DNF_OR_YUM:=$(shell which dnf || which yum)
-SYSTEMCTL:=$(shell which systemctl)
-TAYGA:=$(shell which tayga)
+SYSTEMCTL = systemctl
 
-all:
+CLATD   = $(DESTDIR)$(BINDIR)/clatd
+MANPAGE = $(DESTDIR)$(PREFIX)/share/man/man8/clatd.8
+SYSTEMD_SYSSERVICEDIR = $(DESTDIR)$(SYSCONFDIR)/systemd/system
+NM_DISPATCHER = $(DESTDIR)$(SYSCONFDIR)/NetworkManager/dispatcher.d/50-clatd
+
+all: clatd.8
+.ONESHELL:
+
+clatd.8: clatd.pod
+	pod2man \
+	  --name clatd \
+	  --center "clatd - CLAT, SIIT-DC and IPv6-only with many XLAT engines" \
+	  --section 8 \
+	  $< $@
+
+start: install
+	$(SYSTEMCTL) --system daemon-reload
+	$(SYSTEMCTL) --system -f --now enable clatd.service
+
+stop:
+	$(SYSTEMCTL) --system disable --now clatd.service
+
+uninstall: stop
+	-rm $(SYSTEMD_SYSSERVICE)/clatd.service \
+	    $(SYSTEMD_SYSSERVICE)/clatd@.service \
+	    $(NM_DISPATCHER)
 
 install:
-	# Install the main script
-	install -D -m0755 clatd $(DESTDIR)$(PREFIX)/sbin/clatd
-	# Install manual page if pod2man is installed
-	pod2man --name clatd --center "clatd - a CLAT implementation for Linux" --section 8 README.pod $(DESTDIR)$(PREFIX)/share/man/man8/clatd.8 && gzip -f9 $(DESTDIR)$(PREFIX)/share/man/man8/clatd.8 || echo "pod2man is required to generate manual page"
-	# Install systemd service file if applicable for this system
-	if test -x "$(SYSTEMCTL)" && test -d "$(DESTDIR)$(SYSCONFDIR)/systemd/system"; then install -m0644 scripts/clatd.systemd $(DESTDIR)$(SYSCONFDIR)/systemd/system/clatd.service && $(SYSTEMCTL) daemon-reload; fi
-	if test -e "$(DESTDIR)$(SYSCONFDIR)/systemd/system/clatd.service" && test ! -e "$(DESTDIR)$(SYSCONFDIR)/systemd/system/multi-user.target.wants/clatd.service"; then $(SYSTEMCTL) enable clatd.service; fi
-	# Install NetworkManager dispatcher script if applicable
-	if test -d $(DESTDIR)$(SYSCONFDIR)/NetworkManager/dispatcher.d; then install -m0755 scripts/clatd.networkmanager $(DESTDIR)$(SYSCONFDIR)/NetworkManager/dispatcher.d/50-clatd; fi
+	install -D -m0755 clatd $(CLATD)
+	install -D -m0644 clatd.8 $(MANPAGE)
+	install -D -m0644 scripts/*.service $(SYSTEMD_SYSSERVICEDIR)/
+	install -D -m0755 scripts/clatd.networkmanager $(NM_DISPATCHER)
+
+DEB_PACKAGES = \
+ perl-base perl-modules libnet-ip-perl libnet-dns-perl iproute2 nftables tayga
+
+RPM_PACKAGES = \
+ perl perl-IPC-Cmd perl-Net-IP perl-Net-DNS perl-File-Temp iproute nftables
 
 installdeps:
-	# .deb/apt-get based distros
-	if test -x "$(APT_GET)"; then $(APT_GET) -y install perl-base perl-modules libnet-ip-perl libnet-dns-perl iproute2 nftables tayga; fi
-	# .rpm/DNF/YUM-based distros
-	if test -x "$(DNF_OR_YUM)"; then $(DNF_OR_YUM) -y install perl perl-IPC-Cmd perl-Net-IP perl-Net-DNS perl-File-Temp iproute nftables; fi
-	# If necessary, try to install the TAYGA .rpm using dnf/yum. It is unfortunately not available in all .rpm based distros (in particular CentOS/RHEL).
-	if test -x "$(DNF_OR_YUM)" && test ! -x "$(TAYGA)"; then $(DNF_OR_YUM) -y install tayga || echo "ERROR: Failed to install TAYGA using dnf/yum, the package is probably not included in your distro. Try enabling the EPEL repo <URL: https://fedoraproject.org/wiki/EPEL> and try again, or install TAYGA <URL: http://www.litech.org/tayga> directly from source."; exit 1; fi
+	@prog_exists () command -v $$@ >/dev/null 2>&1;
+	{ PKGS='$(DEB_PACKAGES)'; PKG=apt; prog_exists $$PKG; } || \
+	{ PKGS='$(RPM_PACKAGES)'; PKG=dnf; prog_exists $$PKG; } || \
+	{ PKGS='$(RPM_PACKAGES)'; PKG=yum; prog_exists $$PKG; } || \
+        { PKG=false; echo 'ERROR: Failed to detect system package manager.'>&2;}
+	$(DRY) $$PKG -y $$PKGS

@@ -74,25 +74,6 @@ exit gracefully.
 See the I<scripts/> directory in the source distribution for some examples on
 how to invoke it it.
 
-=head1 INSTALLATION
-
-The following commands will quickly download and install the latest version
-of B<clatd> and its dependencies:
-
-=over
-
-=item git clone https://github.com/toreanderson/clatd
-
-=item sudo make -C clatd install installdeps
-
-=back
-
-This will install B<clatd> to /usr/sbin, plus install systemd, and/or
-NetworkManager scripts if your distribution appears to be using them, and
-install all the dependencies. Note that TAYGA isn't available in all RPM-based
-distros (in particular RHEL and its clones). It is however available in EPEL
-(see L<https://fedoraproject.org/wiki/EPEL>).
-
 =head1 CONFIGURATION
 
 B<clatd> is designed to be able to run without any user-supplied configuration
@@ -469,27 +450,11 @@ someone else hasn't already done so). Please make sure to include logs with
 full debugging output (using I<-d -d> on the command line or B<debug=2> in the
 configuration file) when reporting a bug.
 
-=head1 LICENCE
+=head1 COPYRIGHT
 
-Copyright (c) 2014-2025 Tore Anderson <tore@fud.no>
+Copyright (c) 2014-2025 Tore Anderson <tore@fud.no>.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+SPDX-License-Identifier: MIT
 
 =head1 SEE ALSO
 
