@@ -7,9 +7,11 @@ DNF_OR_YUM:=$(shell which dnf || which yum)
 SYSTEMCTL:=$(shell which systemctl)
 TAYGA:=$(shell which tayga)
 
+all:
+
 install:
 	# Install the main script
-	install -m0755 clatd $(DESTDIR)$(PREFIX)/sbin/clatd
+	install -D -m0755 clatd $(DESTDIR)$(PREFIX)/sbin/clatd
 	# Install manual page if pod2man is installed
 	pod2man --name clatd --center "clatd - a CLAT implementation for Linux" --section 8 README.pod $(DESTDIR)$(PREFIX)/share/man/man8/clatd.8 && gzip -f9 $(DESTDIR)$(PREFIX)/share/man/man8/clatd.8 || echo "pod2man is required to generate manual page"
 	# Install systemd service file if applicable for this system
