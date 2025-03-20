@@ -357,7 +357,8 @@ sub get_plat_prefix_from_dns64 {
     $res->nameservers(map {
       Net::IP->new($_)->version() == 4 ? "::ffff:$_" : $_;
     } $res->nameservers);
-    d2("Nameservers after Net::DNS bug workaround: ", $res->nameservers);
+    d2("Nameservers after Net::DNS bug workaround: ",
+       join(" ", $res->nameservers));
 
     my $pkt = $res->query('ipv4only.arpa', 'AAAA');
     if(!$pkt) {
