@@ -27,7 +27,7 @@ use strict;
 use IPC::Cmd qw(can_run);
 use Net::IP;
 
-my $VERSION = "2.0.0";
+my $VERSION = "2.1.0";
 
 #
 # Populate the global config hash with the default values
