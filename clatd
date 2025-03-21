@@ -1056,13 +1056,13 @@ if(cfgint("ctmark")) {
     or err("'nft -f-' failed to execute");
   print $fd "add table ip6 clatd\n";
   print $fd "add chain ip6 clatd prerouting ",
-            "{ type filter hook prerouting priority 0; }\n";
+            "{ type filter hook prerouting priority mangle; }\n";
   print $fd "add rule ip6 clatd prerouting",
             " iif ", cfg("clat-dev"),
             " ip6 saddr ", cfg("clat-v6-addr"),
             " ip6 daddr ", cfg("plat-prefix"),
             " ct mark set ", cfgint("ctmark"),
-            # set meta mark as well, to placate firewalld's IPv6_rpfilter
+            # set meta mark as well, to placate firewalld's IPv6_rpfilter and NixOS' rpfilter rules
             " meta mark set ", cfgint("ctmark"), " counter\n";
   print $fd "add rule ip6 clatd prerouting",
             " iif ", cfg("plat-dev"),
