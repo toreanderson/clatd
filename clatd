@@ -392,7 +392,7 @@ sub get_plat_prefix_from_dns64 {
     p("No PLAT prefix could be discovered, using fallback");
     return $CFG{"plat-fallback-prefix"};
   } else {
-    p("No PLAT prefix could be discovered. Your ISP probably doesn't provide",
+    p("No PLAT prefix could be discovered. Your connection probably doesn't provide",
       " NAT64/DNS64 PLAT service. Exiting.");
     cleanup_and_exit(0);
   }
