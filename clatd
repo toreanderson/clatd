@@ -42,6 +42,7 @@ $CFG{"clat-v4-addr"} = "192.0.0.1";	# from RFC 7335
 $CFG{"clat-v6-addr"} = "shared";	# re-use primary address from host OS
 $CFG{"dns64-servers"} = undef;		# use system resolver by default
 $CFG{"cmd-ip"} = "ip";			# assume in $PATH
+$CFG{"cmd-ipxlat-ctl"} = "ipxlat-ctl";	# assume in $PATH
 $CFG{"cmd-networkctl"} = "networkctl";	# assume in $PATH
 $CFG{"cmd-nft"} = "nft";		# assume in $PATH
 $CFG{"cmd-tayga"} = "tayga";		# assume in $PATH
@@ -62,6 +63,7 @@ $CFG{"v4-defaultroute-replace"} = 0;	# replace existing v4 defaultroute?
 $CFG{"v4-defaultroute-metric"} = 2048;	# metric for the IPv4 defaultroute
 $CFG{"v4-defaultroute-mtu"} = 1260;	# MTU for the IPv4 defaultroute
 $CFG{"v4-defaultroute-advmss"} = 0;	# TCP MSS for the IPv4 defaultroute
+$CFG{"xlat-engine"} = undef;		# which translation engine to use
 
 
 #
@@ -666,6 +668,7 @@ sub get_clat_v6_addr {
 #
 my $cleanup_remove_tayga_clat_dev;	# true if having created it
 my $cleanup_remove_nat46_clat_dev;	# true if having created it
+my $cleanup_remove_ipxlat_clat_dev;	# true if having created it
 my $cleanup_delete_taygaconf;		# true if having made a temp confile
 my $cleanup_zero_forwarding_sysctl;	# zero forwarding sysctl if set
 my @cleanup_accept_ra_sysctls;		# accept_ra sysctls to be reset to '1'
@@ -696,6 +699,9 @@ sub cleanup_and_exit {
         err("Could not open nat46 control socket for writing");
     print $nat46_control_fh "del ", cfg("clat-dev"), "\n";
     close($nat46_control_fh) or err("close($nat46_control_fh: $!");
+  }
+  if(defined($cleanup_remove_ipxlat_clat_dev)) {
+    cmd(\&w, cfg("cmd-ip"), qw(link delete dev), cfg("clat-dev"));
   }
   if(defined($cleanup_zero_forwarding_sysctl)) {
     d("Cleanup: Resetting forwarding sysctl to 0");
@@ -734,11 +740,11 @@ sub cleanup_and_exit {
   }
   if(defined($cleanup_remove_ufw_rules)) {
     cmd(\&w, cfg("cmd-ufw"), qw(route delete allow in on), cfg("clat-dev"),
-        "from", cfg("clat-v6-addr"), qw(out on), cfg("plat-dev"), "to",
+        "from", cfg("internal-clat-v6-addr"), qw(out on), cfg("plat-dev"), "to",
         cfg("plat-prefix"));
     cmd(\&w, cfg("cmd-ufw"), qw(route delete allow in on), cfg("plat-dev"),
         "from", cfg("plat-prefix"), qw(out on), cfg("clat-dev"), "to",
-        cfg("clat-v6-addr"));
+        cfg("internal-clat-v6-addr"));
   }
 
   exit($exitcode);
@@ -871,6 +877,16 @@ if($CFG{"clat-v6-addr"} eq "shared") {
   $CFG{"clat-v6-addr"} = get_clat_v6_addr();
 }
 
+# Since ipxlat does not support EAM, we'll need to do SNAT66 from the RFC 6052
+# representaion of the CLAT IPv4 address used internally. It is sometimes
+# necessary to refer to this address instead of the CLAT IPv6 address, so
+# create a separate entry in the config hash for that. The other engines (tayga
+# and nat46) supports using EAM to map directly between the CLAT IPv4 address
+# and CLAT IPv6 address without any going via any intermediate RFC6052 address,
+# so default to having the two addresses identical (if using ipxlat, the
+# internal one will be overridden later).
+$CFG{"internal-clat-v6-addr"} = $CFG{"clat-v6-addr"};
+
 # Fill defaults for proxynd-enable and ctmark for clat-v6-addr!=shared
 if(!defined($CFG{"proxynd-enable"})) {
   $CFG{"proxynd-enable"} = 1;
@@ -907,17 +923,35 @@ if(cfgbool("v4-conncheck-enable") and !cfgbool("v4-defaultroute-replace")) {
   d("Skipping IPv4 connectivity check at user request");
 }
 
-# Let's figure out if there's nat46 kernel module loaded
-my $nat46_controlfile = "/proc/net/nat46/control";
-my $use_nat46 = (-e $nat46_controlfile);
 
+my $nat46_controlfile = "/proc/net/nat46/control";
+
+#
+# Auto-detect which translation engine to use if not specified in config
+if(!cfg("xlat-engine") and (-e $nat46_controlfile)) {
+  p("Using translation engine: nat46");
+  $CFG{"xlat-engine"} = "nat46";
+} elsif(!cfg("xlat-engine") and can_run(cfg("cmd-ipxlat-ctl"))) {
+  p("Using translation engine: ipxlat");
+  $CFG{"xlat-engine"} = "ipxlat";
+  # FIXME: handle non-/96 prefix lengths
+  $CFG{"plat-prefix"} =~ m|^(.*?):*/96|;
+  $CFG{"internal-clat-v6-addr"} = Net::IP->new($1 . ":" . $CFG{"clat-v4-addr"}, 6)->ip;
+  p("Using internal CLAT IPv6 address: ", $CFG{"internal-clat-v6-addr"});
+} elsif(!cfg("xlat-engine") and can_run(cfg("cmd-tayga"))) {
+  p("Using translation engine: TAYGA");
+  $CFG{"xlat-engine"} = "tayga";
+} elsif(!cfg("xlat-engine")) {
+  err("No supported translation engine available. Please install TAYGA or ensure ",
+      "either the nat46 or ipxlat kernel modules is loaded.");
+}
 
 
 #
 # Write out the TAYGA config file, either to the user-specified location,
 # or to a temporary file (which we'll delete later)
 #
-unless($use_nat46) {
+if(cfg("xlat-engine") eq "tayga") {
   my $tayga_conffile = cfg("tayga-conffile");
   my $tayga_conffile_fh;
   if(!$tayga_conffile) {
@@ -976,11 +1010,11 @@ if(can_run(cfg("cmd-ufw"))) {
     if(/^Status: active$/) {
       p("UFW local firewall framework active, allowing CLAT-PLAT traffic");
       cmd(\&err, cfg("cmd-ufw"), qw(route allow in on), cfg("clat-dev"),
-          "from", cfg("clat-v6-addr"), qw(out on), cfg("plat-dev"), "to",
+          "from", cfg("internal-clat-v6-addr"), qw(out on), cfg("plat-dev"), "to",
           cfg("plat-prefix"));
       cmd(\&err, cfg("cmd-ufw"), qw(route allow in on), cfg("plat-dev"),
           "from", cfg("plat-prefix"), qw(out on), cfg("clat-dev"), "to",
-          cfg("clat-v6-addr"));
+          cfg("internal-clat-v6-addr"));
       $cleanup_remove_ufw_rules = 1;
     }
   }
@@ -1027,14 +1061,17 @@ close($fd) or err("'ip -6 rule show prio 0 table local' failed");
 # route to the corresponding IPv6 address, and possibly an IPv4 default route
 #
 p("Creating and configuring up CLAT device '", cfg("clat-dev"), "'");
-if($use_nat46) {
+if(cfg("xlat-engine") eq "nat46") {
   my $nat46_control_fh;
   open($nat46_control_fh, ">$nat46_controlfile") or
       err("Could not open nat46 control socket for writing");
   print $nat46_control_fh "add ", cfg("clat-dev"), "\n";
   close($nat46_control_fh) or err("close($nat46_control_fh: $!");
   $cleanup_remove_nat46_clat_dev = 1;
-} else {
+} elsif(cfg("xlat-engine") eq "ipxlat") {
+  cmd(\&err, cfg("cmd-ip"), qw(link add name), cfg("clat-dev"), qw(type ipxlat));
+  $cleanup_remove_ipxlat_clat_dev = 1;
+} elsif(cfg("xlat-engine") eq "tayga") {
   cmd(\&err, cfg("cmd-tayga"), "--config", cfg("tayga-conffile"), "--mktun",
       cfgint("debug") ? "-d" : "");
   $cleanup_remove_tayga_clat_dev = 1;
@@ -1042,10 +1079,10 @@ if($use_nat46) {
 cmd(\&err, cfg("cmd-ip"), qw(link set up dev), cfg("clat-dev"));
 cmd(\&err, cfg("cmd-ip"), qw(-4 address add), cfg("clat-v4-addr"),
     "dev", cfg("clat-dev"));
-cmd(\&err, cfg("cmd-ip"), qw(-6 route add), cfg("clat-v6-addr"),
+cmd(\&err, cfg("cmd-ip"), qw(-6 route add), cfg("internal-clat-v6-addr"),
     "dev", cfg("clat-dev"), "table", cfgint("route-table"));
 cmd(\&err, cfg("cmd-ip"), qw(-6 rule add prio 0 from),
-    cfg("plat-prefix"), "to", cfg("clat-v6-addr"),
+    cfg("plat-prefix"), "to", cfg("internal-clat-v6-addr"),
     cfgint("ctmark") ? ("fwmark", cfgint("ctmark")) : (),
     "table", cfg("route-table"));
 $cleanup_remove_clat_iprule = 1;
@@ -1059,7 +1096,7 @@ if(cfgint("ctmark")) {
             "{ type filter hook prerouting priority mangle; }\n";
   print $fd "add rule ip6 clatd prerouting",
             " iif ", cfg("clat-dev"),
-            " ip6 saddr ", cfg("clat-v6-addr"),
+            " ip6 saddr ", cfg("internal-clat-v6-addr"),
             " ip6 daddr ", cfg("plat-prefix"),
             " ct mark set ", cfgint("ctmark"),
             # set meta mark as well, to placate firewalld's IPv6_rpfilter and NixOS' rpfilter rules
@@ -1070,6 +1107,15 @@ if(cfgint("ctmark")) {
             " ip6 daddr ", cfg("clat-v6-addr"),
             " ct mark ", cfgint("ctmark"),
             " meta mark set ct mark counter\n";
+  if(cfg("clat-v6-addr") ne cfg("internal-clat-v6-addr")) {
+    print $fd "add chain ip6 clatd postrouting ",
+              "{ type nat hook postrouting priority srcnat; }\n";
+    print $fd "add rule ip6 clatd postrouting",
+              " iif ", cfg("clat-dev"),
+              " ip6 saddr ", cfg("internal-clat-v6-addr"),
+              " ip6 daddr ", cfg("plat-prefix"),
+	      " snat to ", cfg("clat-v6-addr");
+  }
   close($fd) or err("'nft -f-' failed");
   $cleanup_remove_nftable = 1;
 }
@@ -1116,7 +1162,7 @@ if(cfg("script-up")) {
 # All preparation done! We can now start nat46 or TAYGA, which will handle the actual
 # translation of IP packets.
 #
-if($use_nat46){
+if(cfg("xlat-engine") eq "nat46") {
   p("Setting up nat46 kernel module");
   my $nat46_control_fh;
   open($nat46_control_fh, ">$nat46_controlfile") or
@@ -1132,7 +1178,13 @@ if($use_nat46){
   $SIG{'INT'} = \&cleanup_handler;
   $SIG{'TERM'} = \&cleanup_handler;
   sleep();
-} else {
+} elsif(cfg("xlat-engine") eq "ipxlat") {
+  cmd(\&err, cfg("cmd-ipxlat-ctl"), cfg("clat-dev"), "pool6", cfg("plat-prefix"));
+  # Nothing more to do here, we just set up a cleanup handler and sleep forever.
+  $SIG{'INT'} = \&cleanup_handler;
+  $SIG{'TERM'} = \&cleanup_handler;
+  sleep();
+} elsif(cfg("xlat-engine") eq "tayga") {
   my $tayga_conffile = cfg("tayga-conffile");
   p("Starting up TAYGA, using config file '$tayga_conffile'");
 

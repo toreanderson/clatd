@@ -1,0 +1,18 @@
+#!/bin/bash -e
+
+# This is a wrapper around the python ynl cli included with the kernel that
+# mimics the documented behaviour of the ipxlat-ctl tool available at
+# https://codeberg.org/IPv6-Monostack/ipxlat, but which I haven't been able to
+# make work. You'll need to ensure the tool is somewhere in $PATH.
+
+PATH=/usr/src/kernels/ipxlat-net-next/tools/net/ynl/pyynl:$PATH
+
+dev="$1"
+prefix="$3"
+
+IID=$(< /sys/class/net/$dev/ifindex)
+ADDR_HEX=$(python3 -c 'import ipaddress,sys; print(ipaddress.IPv6Address(sys.argv[1]).packed.hex())' ${prefix%/*})
+PREFIXLEN=${prefix#*/}
+JSON='{"ifindex": '"$IID"', "config": {"xlat-prefix6": { "prefix": "'$ADDR_HEX'", "prefix-len": '$PREFIXLEN'}}}'
+
+cli.py --family ipxlat --do dev-set --json "$JSON"
