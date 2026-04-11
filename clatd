@@ -851,6 +851,7 @@ if(!$CFG{"plat-prefix"}) {
      $ip->prefixlen() != 64 and
      $ip->prefixlen() != 56 and
      $ip->prefixlen() != 48 and
+     $ip->prefixlen() != 40 and
      $ip->prefixlen() != 32) {
     err("PLAT prefix $CFG{'plat-prefix'} has an invalid prefix length ",
         "(see RFC 6052 section 2.2)");
@@ -934,9 +935,23 @@ if(!cfg("xlat-engine") and (-e $nat46_controlfile)) {
 } elsif(!cfg("xlat-engine") and can_run(cfg("cmd-ipxlat-ctl"))) {
   p("Using translation engine: ipxlat");
   $CFG{"xlat-engine"} = "ipxlat";
-  # FIXME: handle non-/96 prefix lengths
-  $CFG{"plat-prefix"} =~ m|^(.*?):*/96|;
-  $CFG{"internal-clat-v6-addr"} = Net::IP->new($1 . ":" . $CFG{"clat-v4-addr"}, 6)->ip;
+  my $pfx = Net::IP->new($CFG{"plat-prefix"});
+  my $fmt = $pfx->ip;
+  if($pfx->prefixlen == 96) {
+    $fmt =~ s/0000:0000$/%02x%02x:%02x%02x/;
+  } elsif($pfx->prefixlen == 64) {
+    $fmt =~ s/00:0000:0000:0000$/%02x:%02x%02x:%02x00:0000/;
+  } elsif($pfx->prefixlen == 56) {
+    $fmt =~ s/00:0000:0000:0000:0000$/%02x:00%02x:%02x%02x:0000:0000/;
+  } elsif($pfx->prefixlen == 48) {
+    $fmt =~ s/0000:0000:0000:0000:0000$/%02x%02x:00%02x:%02x00:0000:0000/;
+  } elsif($pfx->prefixlen == 40) {
+    $fmt =~ s/00:0000:0000:0000:0000:0000$/%02x:%02x%02x:00%02x:0000:0000:0000/;
+  } elsif($pfx->prefixlen == 32) {
+    $fmt =~ s/0000:0000:0000:0000:0000:0000$/%02x%02x:%02x%02x:0000:0000:0000:0000/;
+  }
+  my $ip = sprintf($fmt, split(/\./, $CFG{"clat-v4-addr"}));
+  $CFG{"internal-clat-v6-addr"} = Net::IP->new($ip)->short;
   p("Using internal CLAT IPv6 address: ", $CFG{"internal-clat-v6-addr"});
 } elsif(!cfg("xlat-engine") and can_run(cfg("cmd-tayga"))) {
   p("Using translation engine: TAYGA");
@@ -1114,7 +1129,7 @@ if(cfgint("ctmark")) {
               " iif ", cfg("clat-dev"),
               " ip6 saddr ", cfg("internal-clat-v6-addr"),
               " ip6 daddr ", cfg("plat-prefix"),
-	      " snat to ", cfg("clat-v6-addr");
+              " snat to ", cfg("clat-v6-addr");
   }
   close($fd) or err("'nft -f-' failed");
   $cleanup_remove_nftable = 1;
