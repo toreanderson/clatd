@@ -354,8 +354,11 @@ sub get_plat_prefix_from_dns64 {
     # an IPv4 name server (e.g., systemd-resolved listening on 127.0.0.53).
     # This works around https://rt.cpan.org/Public/Bug/Display.html?id=158714
     # (and/or https://rt.cpan.org/Public/Bug/Display.html?id=132760).
+    # Net::IP can't parse a scoped address such as fe80::1%eth0, so strip
+    # the zone index first, and leave any address it still can't parse as-is.
     $res->nameservers(map {
-      Net::IP->new($_)->version() == 4 ? "::ffff:$_" : $_;
+      my $ip = Net::IP->new((split(/%/, $_))[0]);
+      $ip && $ip->version() == 4 ? "::ffff:$_" : $_;
     } $res->nameservers);
     d2("Nameservers after Net::DNS bug workaround: ",
        join(" ", $res->nameservers));
@@ -564,7 +567,12 @@ sub get_clat_v6_addr {
       my $candidate = $1;
       my $plen = $2;
       d2("Saw a candidate address on '$plat_dev': $candidate/$plen");
-      my $candidate_int = Net::IP->new($candidate, 6)->intip();
+      my $candidate_ip = Net::IP->new($candidate, 6);
+      if(!$candidate_ip) {
+        w("Ignoring unparseable address '$candidate' on '$plat_dev'");
+        next;
+      }
+      my $candidate_int = $candidate_ip->intip();
       if(!$candidate_int) {
         err("Failed to convert plat prefix to bigint");
       }
